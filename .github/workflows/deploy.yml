@@ -1,0 +1,90 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run tests
+        run: pnpm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies and build
+        run: pnpm install && pnpm run build
+
+      - name: Copy artifacts to EC2 via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: 'dist/,package.json,pnpm-lock.yaml'
+          target: /home/ec2-user/resolve-backend
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ec2-user/resolve-backend
+
+            # Backup current deployment
+            cp -r dist dist.bak 2>/dev/null || true
+
+            # Install production dependencies
+            pnpm install --prod
+
+            # Run TypeORM migrations (rollback on failure)
+            npx typeorm migration:run -d dist/data-source.js || {
+              echo "Migration failed, rolling back..."
+              rm -rf dist && mv dist.bak dist
+              pm2 restart resolve-api 2>/dev/null || true
+              exit 1
+            }
+
+            # Restart application
+            pm2 start /home/ec2-user/ecosystem.config.js 2>/dev/null || pm2 restart resolve-api
+
+            # Wait for application to start
+            sleep 5
+
+            # Health check (rollback on failure)
+            curl -f http://localhost:3000/api || {
+              echo "Health check failed, rolling back..."
+              rm -rf dist && mv dist.bak dist
+              pm2 restart resolve-api
+              exit 1
+            }
+
+            # Cleanup backup and save PM2 state
+            rm -rf dist.bak
+            pm2 save
