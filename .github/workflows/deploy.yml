@@ -81,7 +81,7 @@ jobs:
             sleep 5
 
             # Health check
-            curl -f http://localhost:3000/api || {
+            curl -f http://localhost:3000/api/health || {
               echo "Health check failed, rolling back..."
               rm -rf dist && mv dist.bak dist 2>/dev/null || true
               pm2 restart resolve-api 2>/dev/null || true
