@@ -22,6 +22,9 @@ export class Project {
   @Column('text', { array: true })
   solverIds!: string[];
 
+  @Column('uuid', { nullable: true })
+  leadSolverId?: string | null;
+
   @Column('text', { array: true })
   participantIds!: string[];
 
@@ -33,6 +36,15 @@ export class Project {
 
   @Column('jsonb', { default: () => "'[]'::jsonb" })
   deliverySchedule!: ProposalScheduledDeliverable[];
+
+  @Column('double precision', { nullable: true })
+  totalPrice?: number | null;
+
+  @Column('varchar', { nullable: true })
+  currency?: string | null;
+
+  @Column('jsonb', { default: () => "'{}'::jsonb" })
+  memberShares!: Record<string, number>;
 
   @Column()
   status!: JobStatus;

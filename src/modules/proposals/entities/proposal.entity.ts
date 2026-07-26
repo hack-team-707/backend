@@ -80,8 +80,8 @@ export class Proposal {
   @Column()
   revision!: number;
 
-  @Column({ nullable: true })
-  responseNote?: string;
+  @Column('text', { nullable: true })
+  responseNote?: string | null;
 
   @Column()
   createdAt!: string;

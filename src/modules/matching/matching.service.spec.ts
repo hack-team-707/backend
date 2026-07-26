@@ -5,6 +5,7 @@ import { Problem } from '../problems/entities/problem.entity';
 import { SkillCard } from '../skill-cards/entities/skill-card.entity';
 import { Match } from './entities/match.entity';
 import { MatchingService } from './matching.service';
+import { NoMatchResolutionService } from './no-match-resolution.service';
 
 describe('MatchingService', () => {
   it('matches equivalent and more specific capability names', async () => {
@@ -15,11 +16,17 @@ describe('MatchingService', () => {
       createSafely: jest.fn(),
       createForUsersSafely: jest.fn(),
     } as unknown as NotificationsService;
+    const noMatch = {
+      minimumCoverage: 60,
+      clear: jest.fn(),
+      createOrReplace: jest.fn(),
+    } as unknown as NoMatchResolutionService;
     const service = new MatchingService(
       matches,
       problems,
       skillCards,
       notifications,
+      noMatch,
     );
     const now = new Date().toISOString();
     await problems.save({

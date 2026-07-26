@@ -22,6 +22,7 @@ import { CreateProblemDto } from '../problems/dto/problem.dto';
 import { ProblemsService } from '../problems/problems.service';
 import { CapabilityPortfoliosService } from '../capability-portfolios/capability-portfolios.service';
 import { MatchingService } from '../matching/matching.service';
+import { NoMatchResolutionView } from '../matching/no-match-resolution.types';
 import { OpportunitySearchService } from '../matching/opportunity-search.service';
 import { CreateSkillCardDto } from '../skill-cards/dto/skill-card.dto';
 import { SkillCardsService } from '../skill-cards/skill-cards.service';
@@ -422,6 +423,7 @@ export class ConversationsService {
     conversation.updatedAt = claimedAt;
     let linkedEntityId: string;
     let confirmationText: string;
+    let noMatchResolution: NoMatchResolutionView | undefined;
     try {
       if (card.actionType === ConversationActionType.PUBLISH_PROBLEM) {
         const dto = plainToInstance(CreateProblemDto, {
@@ -442,9 +444,15 @@ export class ConversationsService {
               })),
               limit: 20,
             });
-            confirmationText = matches.length
-              ? `Problema publicado correctamente. Encontré ${matches.length} persona${matches.length === 1 ? '' : 's'} con capacidades compatibles o similares. Puedes revisar el resultado en Mis problemas.`
-              : 'Problema publicado correctamente. Por ahora no encontré personas con capacidades compatibles; Resolve conservará el problema en búsqueda.';
+            if (matches.length) {
+              confirmationText = `Problema publicado correctamente. Encontré ${matches.length} persona${matches.length === 1 ? '' : 's'} con capacidades compatibles o similares. Puedes revisar el resultado en Mis problemas.`;
+            } else {
+              noMatchResolution = await this.matching.findNoMatchResolution(
+                ownerId,
+                problem.id,
+              );
+              confirmationText = `Problema publicado correctamente. ${noMatchResolution.message}`;
+            }
           } catch (error) {
             this.logger.warn(
               `Automatic matching failed for problem ${problem.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
@@ -495,6 +503,17 @@ export class ConversationsService {
         role: MessageRole.SYSTEM,
         text: confirmationText,
         mediaUrls: [],
+        ...(noMatchResolution
+          ? {
+              analysisMetadata: {
+                intent: 'submit_problem' as const,
+                confidence: 1,
+                missingFields: [],
+                provider: 'system',
+                noMatchResolution,
+              },
+            }
+          : {}),
         locationShared: false,
         createdAt: now,
       }),

@@ -10,6 +10,7 @@ import {
   parseJsonObject,
 } from './ai-provider';
 import type { FederatedOpportunity } from '../matching/opportunity-search.types';
+import type { NoMatchAiGuide } from '../matching/no-match-resolution.types';
 
 export type ConversationIntent =
   'submit_problem' | 'register_skill' | 'general_question' | 'unclear';
@@ -65,6 +66,21 @@ export interface AiProposalDraft {
   suggestedPrice: { amount: number; currency: string };
 }
 
+export interface SkillCoverageCandidateInput {
+  id: string;
+  skills: string[];
+}
+
+export interface AiSkillCoverage {
+  coveredSkills: string[];
+  missingSkills: string[];
+  candidateMatches: Array<{
+    id: string;
+    matchingSkills: string[];
+    score: number;
+  }>;
+}
+
 @Injectable()
 export class AiEngineService {
   private readonly logger = new Logger(AiEngineService.name);
@@ -88,6 +104,153 @@ export class AiEngineService {
       `Problema: ${description.trim()}`,
     ].join('\n');
     return this.provider.analyze(prompt);
+  }
+
+  async analyzeSkillCoverage(
+    requiredSkills: string[],
+    teamSkills: string[],
+    candidates: SkillCoverageCandidateInput[],
+  ): Promise<AiSkillCoverage> {
+    const fallback = this.fallbackSkillCoverage(
+      requiredSkills,
+      teamSkills,
+      candidates,
+    );
+    if (this.provider.name === 'disabled') return fallback;
+    try {
+      const raw = await this.provider.generate(
+        [
+          'Analiza cobertura semántica de capacidades para formar un equipo de proyecto.',
+          'Reconoce equivalencias y sinónimos técnicos en español e inglés, por ejemplo depuración, debugging, diagnóstico y troubleshooting.',
+          'Devuelve sólo JSON con este esquema exacto:',
+          '{"coveredSkills":["string"],"missingSkills":["string"],"candidateMatches":[{"id":"string","matchingSkills":["string"],"score":number}]}',
+          'coveredSkills y missingSkills deben usar los nombres originales de requiredSkills.',
+          'score debe estar entre 0 y 100 y matchingSkills debe listar capacidades originales del candidato que cubren requisitos.',
+          `Capacidades requeridas: ${JSON.stringify(requiredSkills)}`,
+          `Capacidades del equipo actual: ${JSON.stringify(teamSkills)}`,
+          `Candidatos: ${JSON.stringify(candidates)}`,
+        ].join('\n'),
+      );
+      const value = parseJsonObject(raw);
+      const coveredSkills = Array.isArray(value.coveredSkills)
+        ? value.coveredSkills.filter(
+            (skill): skill is string => typeof skill === 'string',
+          )
+        : fallback.coveredSkills;
+      const missingSkills = Array.isArray(value.missingSkills)
+        ? value.missingSkills.filter(
+            (skill): skill is string => typeof skill === 'string',
+          )
+        : fallback.missingSkills;
+      const candidateMatches = Array.isArray(value.candidateMatches)
+        ? value.candidateMatches.flatMap((item) => {
+            if (!item || typeof item !== 'object') return [];
+            const candidate = item as Record<string, unknown>;
+            if (
+              typeof candidate.id !== 'string' ||
+              !Array.isArray(candidate.matchingSkills)
+            )
+              return [];
+            return [
+              {
+                id: candidate.id,
+                matchingSkills: candidate.matchingSkills.filter(
+                  (skill): skill is string => typeof skill === 'string',
+                ),
+                score:
+                  typeof candidate.score === 'number'
+                    ? Math.min(100, Math.max(0, candidate.score))
+                    : 0,
+              },
+            ];
+          })
+        : fallback.candidateMatches;
+      return { coveredSkills, missingSkills, candidateMatches };
+    } catch (error) {
+      this.logProviderFallback('team skill coverage analysis', error);
+      return fallback;
+    }
+  }
+
+  async generateNoMatchGuide(
+    problemDescription: string,
+    requiredSkills: string[],
+  ): Promise<NoMatchAiGuide> {
+    const disclaimer =
+      'Orientación general generada por IA. No sustituye la evaluación de un profesional calificado. No realices acciones que puedan poner en riesgo a personas, bienes, sistemas críticos o incumplir normas; ante peligro inmediato, contacta a emergencias o a un profesional autorizado.';
+    const fallback: NoMatchAiGuide = {
+      title: 'Plan inicial seguro mientras encuentras ayuda profesional',
+      steps: [
+        'Detén cualquier actividad que pueda aumentar el daño y mantén a las personas alejadas del área afectada.',
+        'Documenta el problema con notas, fechas y fotografías sólo si hacerlo es seguro.',
+        `Prepara una descripción breve para solicitar ayuda e incluye estas capacidades: ${requiredSkills.join(', ') || 'diagnóstico profesional'}.`,
+        'Consulta profesionales acreditados, solicita referencias y compara alcance, tiempos y condiciones antes de contratar.',
+      ],
+      safetyWarnings: [
+        'No desmontes, repares ni manipules instalaciones, equipos o materiales peligrosos sin capacitación y autorización.',
+      ],
+      disclaimer,
+      provider: 'fallback',
+    };
+    const riskContext = `${problemDescription} ${requiredSkills.join(' ')}`;
+    const dangerous =
+      /chisp|electric|volt|cable|gas|combust|incend|fuego|estructur|techo|freno|m[eé]dic|salud|s[ií]ntoma|medicamento|dosis|sangre|qu[ií]mic|t[oó]xic|presi[oó]n|arma|explosi|inundaci[oó]n|legal|financ|inversi[oó]n|deuda/i.test(
+        riskContext,
+      );
+    if (dangerous || this.provider.name === 'disabled') return fallback;
+    try {
+      const raw = await this.provider.generate(
+        [
+          'Genera orientación inicial conservadora en español para el dueño de un problema cuando no hay un solucionador humano disponible.',
+          'No des instrucciones peligrosas, no indiques desmontar ni reparar instalaciones, y no sustituyas asesoría profesional.',
+          'Devuelve sólo JSON: {"title":"string","steps":["string"],"safetyWarnings":["string"]}.',
+          'Incluye entre 2 y 6 pasos prácticos de bajo riesgo: documentar, contener sólo si es seguro, recopilar información y buscar profesionales.',
+          `Problema: ${problemDescription}`,
+          `Capacidades requeridas: ${JSON.stringify(requiredSkills)}`,
+        ].join('\n'),
+      );
+      const value = parseJsonObject(raw);
+      const steps = Array.isArray(value.steps)
+        ? value.steps.filter(
+            (step): step is string =>
+              typeof step === 'string' && step.trim().length > 0,
+          )
+        : [];
+      const safetyWarnings = Array.isArray(value.safetyWarnings)
+        ? value.safetyWarnings.filter(
+            (warning): warning is string =>
+              typeof warning === 'string' && warning.trim().length > 0,
+          )
+        : [];
+      const unsafeGeneratedStep = steps.some((step) =>
+        /\b(desmont|repar|manipul|conect|desconect|cort|perfor|instal|sustitu|reemplaz|mezcl|aplic|inger|tom|dosis|medic|puente|desactiv|anul|retir|abr)/i.test(
+          step,
+        ),
+      );
+      if (
+        typeof value.title !== 'string' ||
+        !value.title.trim() ||
+        steps.length < 2 ||
+        unsafeGeneratedStep
+      ) {
+        throw new Error(
+          'AI provider returned an invalid or unsafe no-match guide',
+        );
+      }
+      return {
+        title: value.title.trim(),
+        steps: steps.slice(0, 6).map((step) => step.trim()),
+        safetyWarnings: (safetyWarnings.length
+          ? safetyWarnings
+          : fallback.safetyWarnings
+        ).map((warning) => warning.trim()),
+        disclaimer,
+        provider: this.provider.name,
+      };
+    } catch (error) {
+      this.logProviderFallback('no-match guidance', error);
+      return fallback;
+    }
   }
 
   async generateProposalDraft(
@@ -738,6 +901,69 @@ export class AiEngineService {
       summary: value.summary.trim(),
       validationStatus: 'ai_assessed',
     };
+  }
+
+  private fallbackSkillCoverage(
+    requiredSkills: string[],
+    teamSkills: string[],
+    candidates: SkillCoverageCandidateInput[],
+  ): AiSkillCoverage {
+    const coveredSkills = requiredSkills.filter((required) =>
+      teamSkills.some((skill) =>
+        this.skillsSemanticallyOverlap(required, skill),
+      ),
+    );
+    const missingSkills = requiredSkills.filter(
+      (required) => !coveredSkills.includes(required),
+    );
+    return {
+      coveredSkills,
+      missingSkills,
+      candidateMatches: candidates.map((candidate) => {
+        const matchingSkills = candidate.skills.filter((skill) =>
+          missingSkills.some((required) =>
+            this.skillsSemanticallyOverlap(required, skill),
+          ),
+        );
+        return {
+          id: candidate.id,
+          matchingSkills,
+          score: missingSkills.length
+            ? Math.round((matchingSkills.length / missingSkills.length) * 100)
+            : 0,
+        };
+      }),
+    };
+  }
+
+  private skillsSemanticallyOverlap(left: string, right: string): boolean {
+    const normalize = (value: string) =>
+      value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLocaleLowerCase();
+    const normalizedLeft = normalize(left);
+    const normalizedRight = normalize(right);
+    if (
+      normalizedLeft === normalizedRight ||
+      normalizedLeft.includes(normalizedRight) ||
+      normalizedRight.includes(normalizedLeft)
+    )
+      return true;
+    const synonymGroups = [
+      ['depuracion', 'debugging', 'diagnostico', 'troubleshooting'],
+      ['backend', 'desarrollo backend', 'servidor', 'api', 'apis'],
+      ['frontend', 'desarrollo web', 'interfaz', 'ui'],
+      ['experiencia de usuario', 'ux', 'usabilidad'],
+      ['diseno', 'diseno grafico', 'figma', 'ui'],
+      ['base de datos', 'sql', 'postgresql', 'mongodb'],
+    ];
+    return synonymGroups.some(
+      (group) =>
+        group.some((value) => normalizedLeft.includes(value)) &&
+        group.some((value) => normalizedRight.includes(value)),
+    );
   }
 
   private logProviderFallback(operation: string, error: unknown): void {

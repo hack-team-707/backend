@@ -19,6 +19,8 @@ import { Problem } from '../problems/entities/problem.entity';
 import { SkillCard } from '../skill-cards/entities/skill-card.entity';
 import { RankMatchesDto, RespondToMatchDto } from './dto/matching.dto';
 import { Match } from './entities/match.entity';
+import { NoMatchResolutionService } from './no-match-resolution.service';
+import { NoMatchResolutionView } from './no-match-resolution.types';
 
 const PROFICIENCY: Record<ProficiencyLevel, number> = {
   [ProficiencyLevel.BEGINNER]: 0.25,
@@ -35,6 +37,7 @@ export class MatchingService {
     @InjectRepository(SkillCard)
     private readonly skillCards: Repository<SkillCard>,
     private readonly notifications: NotificationsService,
+    private readonly noMatch: NoMatchResolutionService,
   ) {}
 
   async rank(
@@ -46,8 +49,14 @@ export class MatchingService {
     if (!problem) throw new NotFoundException('Problem not found');
     if (problem.ownerId !== requesterId)
       throw new ForbiddenException('Problem is not owned by user');
-    if (problem.status !== ProblemStatus.PUBLISHED)
-      throw new ForbiddenException('Problem must be published before matching');
+    if (
+      ![ProblemStatus.PUBLISHED, ProblemStatus.MATCHING].includes(
+        problem.status,
+      )
+    )
+      throw new ForbiddenException(
+        'Problem must be published or matching before ranking',
+      );
 
     const requiredSkills = this.normalizeRequiredSkills(dto.requiredSkills);
     const cards = await this.skillCards.find();
@@ -65,9 +74,8 @@ export class MatchingService {
       bySolver.set(card.ownerId, solverCards);
     }
 
-    await this.matches.delete({ problemId });
     const now = new Date().toISOString();
-    const ranked = [...bySolver.entries()]
+    const candidates = [...bySolver.entries()]
       .map(([solverId, solverCards]) =>
         this.scoreCandidate(
           problemId,
@@ -78,10 +86,26 @@ export class MatchingService {
           now,
         ),
       )
-      .filter((match) => match.coverage > 0)
-      .sort((a, b) => b.score - a.score || a.solverId.localeCompare(b.solverId))
+      .sort(
+        (a, b) => b.score - a.score || a.solverId.localeCompare(b.solverId),
+      );
+    const ranked = candidates
+      .filter((match) => match.coverage >= this.noMatch.minimumCoverage)
       .slice(0, dto.limit);
 
+    const noMatchResolution = ranked.length
+      ? undefined
+      : await this.noMatch.createOrReplace({
+          ownerId: requesterId,
+          problem,
+          requiredSkills: requiredSkills.map((skill) => skill.name),
+          bestCoverage: Math.max(
+            0,
+            ...candidates.map((candidate) => candidate.coverage),
+          ),
+        });
+
+    await this.matches.delete({ problemId });
     this.problems.merge(problem, {
       status: ProblemStatus.MATCHING,
       updatedAt: now,
@@ -89,6 +113,7 @@ export class MatchingService {
     await this.problems.save(problem);
     const saved = await this.matches.save(ranked);
     if (saved.length) {
+      await this.noMatch.clear(problemId);
       await Promise.all([
         this.notifications.createSafely({
           userId: requesterId,
@@ -109,6 +134,16 @@ export class MatchingService {
           requesterId,
         ),
       ]);
+    } else {
+      await this.notifications.createSafely({
+        userId: requesterId,
+        type: NotificationType.NO_INTERNAL_MATCH,
+        title: 'Seguimos buscando una solución',
+        message: noMatchResolution?.aiGuide
+          ? 'Aún no hay solucionadores locales con la cobertura mínima. Revisa alternativas externas y una guía inicial segura.'
+          : 'Aún no hay solucionadores locales con la cobertura mínima. Revisa los canales externos sugeridos.',
+        href: `/problems?noMatch=${problemId}`,
+      });
     }
     return saved;
   }
@@ -134,6 +169,17 @@ export class MatchingService {
     return matches.filter(
       (match) => match.requesterId === userId || match.solverId === userId,
     );
+  }
+
+  findNoMatchResolution(
+    ownerId: string,
+    problemId: string,
+  ): Promise<NoMatchResolutionView> {
+    return this.noMatch.findForOwner(ownerId, problemId);
+  }
+
+  findMyNoMatchResolutions(ownerId: string): Promise<NoMatchResolutionView[]> {
+    return this.noMatch.findAllForOwner(ownerId);
   }
 
   async respond(

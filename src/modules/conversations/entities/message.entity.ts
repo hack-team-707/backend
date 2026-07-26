@@ -1,5 +1,6 @@
 import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
 import { CapabilityAssessmentState } from '../../ai-engine/ai-provider';
+import { NoMatchResolutionView } from '../../matching/no-match-resolution.types';
 import { FederatedOpportunity } from '../../matching/opportunity-search.types';
 import { StructuredCard } from './conversation.entity';
 
@@ -23,6 +24,7 @@ export interface MessageAnalysisMetadata {
     strategy: 'internal_first' | 'external_fallback';
     sourcesConsulted: Array<'resolve' | 'himalayas' | 'freelancer'>;
   };
+  noMatchResolution?: NoMatchResolutionView;
 }
 
 @Entity('messages')

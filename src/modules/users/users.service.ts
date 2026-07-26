@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { PublicUser, toPublicUser, User } from './entities/user.entity';
 
 @Injectable()
@@ -25,5 +25,29 @@ export class UsersService {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('User not found');
     return toPublicUser(user);
+  }
+
+  async findPublicByIds(ids: string[]): Promise<PublicUser[]> {
+    const uniqueIds = [...new Set(ids)].filter(Boolean);
+    if (!uniqueIds.length) return [];
+    const users = await this.repository.findBy({ id: In(uniqueIds) });
+    return users.map(toPublicUser);
+  }
+
+  async searchPublic(query: string): Promise<PublicUser[]> {
+    const normalized = query.trim().toLocaleLowerCase();
+    const users = await this.repository.find({
+      order: { displayName: 'ASC' },
+      take: 200,
+    });
+    return users
+      .filter(
+        (user) =>
+          !normalized ||
+          user.displayName.toLocaleLowerCase().includes(normalized) ||
+          user.email.toLocaleLowerCase().includes(normalized),
+      )
+      .slice(0, 30)
+      .map(toPublicUser);
   }
 }

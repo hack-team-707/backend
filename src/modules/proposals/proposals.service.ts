@@ -215,10 +215,13 @@ export class ProposalsService {
         proposalId: proposal.id,
         problemId: proposal.problemId,
         requesterId,
+        leadSolverId: proposal.submittedBy,
         solverIds: proposal.solverIds,
         title: proposal.summary,
         acceptanceCriteria: proposal.acceptanceCriteria,
         deliverySchedule: proposal.deliverySchedule,
+        price: proposal.price,
+        currency: proposal.currency,
       });
       const now = new Date().toISOString();
       this.proposals.merge(proposal, {
@@ -256,9 +259,14 @@ export class ProposalsService {
             : 'Respondieron a tu propuesta',
         message:
           dto.note?.trim() || `La propuesta cambió al estado ${dto.status}.`,
-        href: '/opportunities',
+        href: `/opportunities?proposal=${proposal.id}`,
       },
       requesterId,
+    );
+    this.realtime.emitToUsers(
+      proposal.solverIds.filter((userId) => userId !== requesterId),
+      'proposal.updated',
+      saved,
     );
     return saved;
   }
@@ -299,7 +307,7 @@ export class ProposalsService {
       acceptanceCriteria: dto.acceptanceCriteria.map((item) => item.trim()),
       status: ProposalStatus.REVISED,
       revision: proposal.revision + 1,
-      responseNote: undefined,
+      responseNote: null,
       updatedAt: new Date().toISOString(),
     });
     const saved = await this.proposals.save(proposal);
@@ -307,10 +315,11 @@ export class ProposalsService {
       await this.notifications.createSafely({
         userId: proposal.requesterId,
         type: NotificationType.PROPOSAL_RECEIVED,
-        title: 'Propuesta actualizada',
-        message: 'El solucionador envió una nueva versión de la propuesta.',
-        href: '/projects',
+        title: 'Propuesta reajustada',
+        message: `El solucionador envió la revisión ${saved.revision} de la propuesta.`,
+        href: `/problems?proposal=${saved.id}`,
       });
+      this.realtime.emitToUser(proposal.requesterId, 'proposal.updated', saved);
     }
     return saved;
   }

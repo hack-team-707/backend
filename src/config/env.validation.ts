@@ -28,6 +28,8 @@ interface Environment {
   ANTHROPIC_BASE_URL: string;
   EXTERNAL_OPPORTUNITIES_ENABLED: boolean;
   EXTERNAL_OPPORTUNITIES_TIMEOUT_MS: number;
+  MIN_INTERNAL_MATCH_COVERAGE: number;
+  NO_MATCH_AI_GUIDANCE_ENABLED: boolean;
   HIMALAYAS_API_URL: string;
   FREELANCER_API_URL: string;
   FREELANCER_OAUTH_TOKEN?: string;
@@ -59,6 +61,10 @@ export function validateEnvironment(
   const externalOpportunitiesTimeout = Number(
     raw.EXTERNAL_OPPORTUNITIES_TIMEOUT_MS ?? 15000,
   );
+  const minimumInternalMatchCoverage = Number(
+    raw.MIN_INTERNAL_MATCH_COVERAGE ?? 60,
+  );
+  const noMatchAiGuidanceValue = raw.NO_MATCH_AI_GUIDANCE_ENABLED ?? 'true';
   const dataEncryptionKey = raw.DATA_ENCRYPTION_KEY;
   const aiProvider =
     typeof raw.AI_PROVIDER === 'string' ? raw.AI_PROVIDER : 'disabled';
@@ -131,6 +137,18 @@ export function validateEnvironment(
       'EXTERNAL_OPPORTUNITIES_TIMEOUT_MS must be between 1000 and 20000',
     );
   }
+  if (
+    !Number.isFinite(minimumInternalMatchCoverage) ||
+    minimumInternalMatchCoverage < 1 ||
+    minimumInternalMatchCoverage > 100
+  ) {
+    throw new Error('MIN_INTERNAL_MATCH_COVERAGE must be between 1 and 100');
+  }
+  if (
+    !['true', 'false', true, false].includes(noMatchAiGuidanceValue as never)
+  ) {
+    throw new Error('NO_MATCH_AI_GUIDANCE_ENABLED must be true or false');
+  }
   if (configuredVapidValues !== 0 && configuredVapidValues !== 3) {
     throw new Error(
       'VAPID_SUBJECT, VAPID_PUBLIC_KEY, and VAPID_PRIVATE_KEY must be configured together',
@@ -200,6 +218,9 @@ export function validateEnvironment(
       externalOpportunitiesValue === true ||
       externalOpportunitiesValue === 'true',
     EXTERNAL_OPPORTUNITIES_TIMEOUT_MS: externalOpportunitiesTimeout,
+    MIN_INTERNAL_MATCH_COVERAGE: minimumInternalMatchCoverage,
+    NO_MATCH_AI_GUIDANCE_ENABLED:
+      noMatchAiGuidanceValue === true || noMatchAiGuidanceValue === 'true',
     HIMALAYAS_API_URL:
       optionalString(raw.HIMALAYAS_API_URL) ??
       'https://himalayas.app/jobs/api/search',

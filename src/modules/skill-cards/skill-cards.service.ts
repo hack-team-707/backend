@@ -45,6 +45,13 @@ export class SkillCardsService {
     return this.repository.find({ where: { ownerId } });
   }
 
+  findPublished(): Promise<SkillCard[]> {
+    return this.repository.find({
+      where: { status: SkillCardStatus.PUBLISHED },
+      order: { updatedAt: 'DESC' },
+    });
+  }
+
   async update(
     ownerId: string,
     id: string,

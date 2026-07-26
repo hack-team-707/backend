@@ -16,6 +16,10 @@ import { AddCapabilityPortfolios1785200000000 } from './migrations/1785200000000
 import { AddProposalDeliverySchedules1785300000000 } from './migrations/1785300000000-AddProposalDeliverySchedules';
 import { MakeProposalSubmissionIdempotent1785400000000 } from './migrations/1785400000000-MakeProposalSubmissionIdempotent';
 import { FixProposalNotificationLinks1785500000000 } from './migrations/1785500000000-FixProposalNotificationLinks';
+import { AddProjectLead1785600000000 } from './migrations/1785600000000-AddProjectLead';
+import { AddProjectInvitations1785700000000 } from './migrations/1785700000000-AddProjectInvitations';
+import { AddProjectBudgetShares1785800000000 } from './migrations/1785800000000-AddProjectBudgetShares';
+import { AddNoMatchResolutions1785900000000 } from './migrations/1785900000000-AddNoMatchResolutions';
 import { AdminModule } from './modules/admin/admin.module';
 import { AiEngineModule } from './modules/ai-engine/ai-engine.module';
 import { CapabilityPortfoliosModule } from './modules/capability-portfolios/capability-portfolios.module';
@@ -56,6 +60,10 @@ import { UsersModule } from './modules/users/users.module';
           AddProposalDeliverySchedules1785300000000,
           MakeProposalSubmissionIdempotent1785400000000,
           FixProposalNotificationLinks1785500000000,
+          AddProjectLead1785600000000,
+          AddProjectInvitations1785700000000,
+          AddProjectBudgetShares1785800000000,
+          AddNoMatchResolutions1785900000000,
         ],
         migrationsRun: config.getOrThrow<boolean>('DB_RUN_MIGRATIONS'),
         autoLoadEntities: true,

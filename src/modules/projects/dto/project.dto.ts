@@ -6,9 +6,15 @@ import {
   IsBoolean,
   IsEnum,
   IsOptional,
+  IsNotEmpty,
   IsString,
+  IsUUID,
   IsUrl,
   MaxLength,
+  Max,
+  Min,
+  IsNumber,
+  MinLength,
   ValidateIf,
 } from 'class-validator';
 import { ProjectTaskStatus } from '../../../shared';
@@ -82,6 +88,54 @@ export class ValidateProjectDto {
   note!: string;
 
   @ApiProperty({ enum: [true], description: 'Explicit user confirmation' })
+  @IsBoolean()
+  @Equals(true)
+  confirmed!: true;
+}
+
+export class InviteProjectCollaboratorDto {
+  @ApiProperty()
+  @IsUUID()
+  userId!: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  desiredSkills?: string[];
+
+  @ApiProperty({
+    minimum: 1,
+    maximum: 99,
+    description: 'Percentage of the total project price offered to the invitee',
+  })
+  @IsNumber()
+  @Min(1)
+  @Max(99)
+  allocationPercent!: number;
+}
+
+export class RespondProjectInvitationDto {
+  @ApiProperty()
+  @IsBoolean()
+  accepted!: boolean;
+
+  @ApiProperty({ enum: [true], description: 'Explicit user confirmation' })
+  @IsBoolean()
+  @Equals(true)
+  confirmed!: true;
+}
+
+export class RemoveProjectCollaboratorDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(10)
+  @MaxLength(2000)
+  reason!: string;
+
+  @ApiProperty({ enum: [true], description: 'Explicit leader confirmation' })
   @IsBoolean()
   @Equals(true)
   confirmed!: true;

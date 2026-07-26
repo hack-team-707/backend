@@ -23,6 +23,7 @@ import { Match } from './entities/match.entity';
 import { MatchingService } from './matching.service';
 import { OpportunitySearchService } from './opportunity-search.service';
 import { FederatedOpportunitySearchResult } from './opportunity-search.types';
+import { NoMatchResolutionView } from './no-match-resolution.types';
 
 @ApiTags('matching')
 @ApiBearerAuth()
@@ -56,6 +57,23 @@ export class MatchingController {
     @Query() query: SearchOpportunitiesQueryDto,
   ): Promise<FederatedOpportunitySearchResult> {
     return this.opportunitySearch.search(user.userId, query.q, query.limit);
+  }
+
+  @Get('no-match-resolutions')
+  @Roles(UserRole.REQUESTER)
+  findMyNoMatchResolutions(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<NoMatchResolutionView[]> {
+    return this.service.findMyNoMatchResolutions(user.userId);
+  }
+
+  @Get('problems/:problemId/no-match-resolution')
+  @Roles(UserRole.REQUESTER)
+  findNoMatchResolution(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('problemId') problemId: string,
+  ): Promise<NoMatchResolutionView> {
+    return this.service.findNoMatchResolution(user.userId, problemId);
   }
 
   @Get('problems/:problemId')
