@@ -1,0 +1,89 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { RolesGuard } from './auth/roles.guard';
+import { HttpExceptionFilter } from './common/http-exception.filter';
+import { validateEnvironment } from './config/env.validation';
+import { AddConversationAiMessages1784800000000 } from './migrations/1784800000000-AddConversationAiMessages';
+import { AddPushSubscriptions1784900000000 } from './migrations/1784900000000-AddPushSubscriptions';
+import { AddSkillCardAssessment1785000000000 } from './migrations/1785000000000-AddSkillCardAssessment';
+import { AddCapabilityPortfolios1785200000000 } from './migrations/1785200000000-AddCapabilityPortfolios';
+import { AddProposalDeliverySchedules1785300000000 } from './migrations/1785300000000-AddProposalDeliverySchedules';
+import { MakeProposalSubmissionIdempotent1785400000000 } from './migrations/1785400000000-MakeProposalSubmissionIdempotent';
+import { FixProposalNotificationLinks1785500000000 } from './migrations/1785500000000-FixProposalNotificationLinks';
+import { AdminModule } from './modules/admin/admin.module';
+import { AiEngineModule } from './modules/ai-engine/ai-engine.module';
+import { CapabilityPortfoliosModule } from './modules/capability-portfolios/capability-portfolios.module';
+import { ConversationsModule } from './modules/conversations/conversations.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
+import { EvidenceModule } from './modules/evidence/evidence.module';
+import { MatchingModule } from './modules/matching/matching.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ProblemsModule } from './modules/problems/problems.module';
+import { ProjectsModule } from './modules/projects/projects.module';
+import { ReputationModule } from './modules/reputation/reputation.module';
+import { ProposalsModule } from './modules/proposals/proposals.module';
+import { SkillCardsModule } from './modules/skill-cards/skill-cards.module';
+import { TeamFormationModule } from './modules/team-formation/team-formation.module';
+import { UsersModule } from './modules/users/users.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      cache: true,
+      validate: validateEnvironment,
+    }),
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        type: 'postgres' as const,
+        url: config.getOrThrow<string>('DATABASE_URL'),
+        ssl: config.getOrThrow<boolean>('DB_SSL')
+          ? { rejectUnauthorized: false }
+          : false,
+        synchronize: config.getOrThrow<boolean>('DB_SYNCHRONIZE'),
+        migrations: [
+          AddConversationAiMessages1784800000000,
+          AddPushSubscriptions1784900000000,
+          AddSkillCardAssessment1785000000000,
+          AddCapabilityPortfolios1785200000000,
+          AddProposalDeliverySchedules1785300000000,
+          MakeProposalSubmissionIdempotent1785400000000,
+          FixProposalNotificationLinks1785500000000,
+        ],
+        migrationsRun: config.getOrThrow<boolean>('DB_RUN_MIGRATIONS'),
+        autoLoadEntities: true,
+      }),
+    }),
+    UsersModule,
+    AuthModule,
+    AiEngineModule,
+    CapabilityPortfoliosModule,
+    SkillCardsModule,
+    ProblemsModule,
+    ConversationsModule,
+    MatchingModule,
+    TeamFormationModule,
+    ProjectsModule,
+    ProposalsModule,
+    EvidenceModule,
+    NotificationsModule,
+    ReputationModule,
+    AdminModule,
+    DisputesModule,
+  ],
+  controllers: [AppController],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_FILTER, useClass: HttpExceptionFilter },
+  ],
+})
+export class AppModule {}
