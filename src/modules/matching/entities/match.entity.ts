@@ -1,5 +1,7 @@
 import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
-import { MatchStatus, TaxonomySkill } from '../../../shared';
+import { MatchStatus, TaxonomySkill, TeamRole } from '../../../shared';
+
+export type MatchInvitationKind = 'individual' | 'team';
 
 @Entity('matches')
 export class Match {
@@ -38,6 +40,18 @@ export class Match {
 
   @Column()
   status!: MatchStatus;
+
+  @Column({ nullable: true })
+  requestedAt?: string;
+
+  @Column({ nullable: true })
+  invitationKind?: MatchInvitationKind;
+
+  @Column('uuid', { nullable: true })
+  teamId?: string;
+
+  @Column({ nullable: true })
+  teamRole?: TeamRole;
 
   @Column()
   createdAt!: string;

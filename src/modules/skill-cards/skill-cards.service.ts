@@ -52,6 +52,13 @@ export class SkillCardsService {
     });
   }
 
+  findPublishedForOwner(ownerId: string): Promise<SkillCard[]> {
+    return this.repository.find({
+      where: { ownerId, status: SkillCardStatus.PUBLISHED },
+      order: { updatedAt: 'DESC' },
+    });
+  }
+
   async update(
     ownerId: string,
     id: string,

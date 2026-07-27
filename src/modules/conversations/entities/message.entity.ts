@@ -2,6 +2,9 @@ import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
 import { CapabilityAssessmentState } from '../../ai-engine/ai-provider';
 import { NoMatchResolutionView } from '../../matching/no-match-resolution.types';
 import { FederatedOpportunity } from '../../matching/opportunity-search.types';
+import { IndividualMatchSuggestionView } from '../../matching/individual-match.types';
+import { ExternalTalentSearchResponse } from '../../external-talent/interfaces/talent-provider.interface';
+import { TeamSuggestionView } from '../../team-formation/team-formation.types';
 import { StructuredCard } from './conversation.entity';
 
 export enum MessageRole {
@@ -25,6 +28,9 @@ export interface MessageAnalysisMetadata {
     sourcesConsulted: Array<'resolve' | 'himalayas' | 'freelancer'>;
   };
   noMatchResolution?: NoMatchResolutionView;
+  externalTalent?: ExternalTalentSearchResponse;
+  teamSuggestion?: TeamSuggestionView;
+  individualSuggestions?: IndividualMatchSuggestionView[];
 }
 
 @Entity('messages')

@@ -85,6 +85,24 @@ export class MatchingController {
     return this.service.findForProblem(user.userId, problemId);
   }
 
+  @Post(':id/request')
+  @Roles(UserRole.REQUESTER)
+  requestSolver(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.service.requestSolver(user.userId, id);
+  }
+
+  @Post(':id/apply')
+  @Roles(UserRole.SOLVER)
+  apply(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<Match> {
+    return this.service.apply(user.userId, id);
+  }
+
   @Patch(':id/respond')
   @Roles(UserRole.SOLVER)
   respond(

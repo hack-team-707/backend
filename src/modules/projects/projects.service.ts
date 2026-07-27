@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
@@ -36,6 +37,7 @@ import { ProjectMessage } from './entities/project-message.entity';
 import { ProjectInvitation } from './entities/project-invitation.entity';
 import { ProjectTask } from './entities/project-task.entity';
 import { Project } from './entities/project.entity';
+import { ProjectRoomService } from './project-room.service';
 import type { ProposalScheduledDeliverable } from '../proposals/entities/proposal.entity';
 
 export interface AcceptedProposalProjectInput {
@@ -111,6 +113,8 @@ export class ProjectsService {
     private readonly users: UsersService,
     private readonly skillCards: SkillCardsService,
     private readonly aiEngine: AiEngineService,
+    @Optional()
+    private readonly room?: ProjectRoomService,
   ) {}
 
   async createFromAcceptedProposal(
@@ -119,7 +123,10 @@ export class ProjectsService {
     const existing = await this.projects.findOneBy({
       proposalId: input.proposalId,
     });
-    if (existing) return existing;
+    if (existing) {
+      await this.room?.ensureRoom(existing);
+      return existing;
+    }
     const problemProject = await this.projects.findOneBy({
       problemId: input.problemId,
     });
@@ -127,23 +134,34 @@ export class ProjectsService {
       throw new ConflictException('Problem already has a project');
     const now = new Date().toISOString();
     const solverIds = [...new Set(input.solverIds)].sort();
-    const project = await this.projects.save(
-      this.projects.create({
-        id: randomUUID(),
-        ...input,
-        solverIds,
-        leadSolverId: input.leadSolverId,
-        participantIds: [...new Set([input.requesterId, ...solverIds])],
-        deliverySchedule: input.deliverySchedule,
-        totalPrice: input.price,
-        currency: input.currency,
-        memberShares: { [input.leadSolverId]: 100 },
-        status: JobStatus.ACTIVE,
-        completionEvidenceIds: [],
-        createdAt: now,
-        updatedAt: now,
-      }),
-    );
+    let project: Project;
+    try {
+      project = await this.projects.save(
+        this.projects.create({
+          id: randomUUID(),
+          ...input,
+          solverIds,
+          leadSolverId: input.leadSolverId,
+          participantIds: [...new Set([input.requesterId, ...solverIds])],
+          deliverySchedule: input.deliverySchedule,
+          totalPrice: input.price,
+          currency: input.currency,
+          memberShares: { [input.leadSolverId]: 100 },
+          status: JobStatus.ACTIVE,
+          completionEvidenceIds: [],
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+    } catch (error) {
+      const concurrent = await this.projects.findOneBy({
+        proposalId: input.proposalId,
+      });
+      if (!concurrent) throw error;
+      await this.room?.ensureRoom(concurrent);
+      return concurrent;
+    }
+    await this.room?.ensureRoom(project);
     await this.notifications.createForUsersSafely(
       project.participantIds,
       {
@@ -402,6 +420,7 @@ export class ProjectsService {
       project.memberShares = shares;
       project.updatedAt = now;
       await this.projects.save(project);
+      await this.room?.participantAdded(project, invitation.invitedBy, userId);
     }
     await this.notifications.createSafely({
       userId: invitation.invitedBy,
@@ -447,6 +466,7 @@ export class ProjectsService {
     project.memberShares = shares;
     project.updatedAt = new Date().toISOString();
     await this.projects.save(project);
+    await this.room?.participantRemoved(project, userId, collaboratorId);
     await this.notifications.createSafely({
       userId: collaboratorId,
       type: NotificationType.PROJECT_STARTED,
@@ -755,6 +775,7 @@ export class ProjectsService {
     text?: string,
     attachmentUrls: string[] = [],
   ): Promise<ProjectMessage> {
+    const now = new Date().toISOString();
     const message = await this.messages.save(
       this.messages.create({
         id: randomUUID(),
@@ -763,7 +784,10 @@ export class ProjectsService {
         type,
         ...(text ? { text } : {}),
         attachmentUrls,
-        createdAt: new Date().toISOString(),
+        mentionUserIds: [],
+        reactions: {},
+        createdAt: now,
+        updatedAt: now,
       }),
     );
     const project = await this.projects.findOneBy({ id: projectId });

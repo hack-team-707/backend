@@ -104,25 +104,14 @@ export class NoMatchResolutionService {
     );
     return [
       {
-        id: 'workana',
-        name: 'Workana',
-        kind: 'platform',
-        description:
-          'Marketplace orientado a profesionales independientes en Latinoamérica.',
-        reason:
-          'Permite publicar una necesidad y comparar perfiles y propuestas externas.',
-        url: 'https://www.workana.com/es',
-        source: 'predefined_rule',
-      },
-      {
         id: 'freelancer',
         name: 'Freelancer',
         kind: 'platform',
         description:
           'Plataforma internacional para publicar proyectos y recibir ofertas.',
         reason:
-          'Amplía la búsqueda a una red global de profesionales por especialidad.',
-        url: 'https://www.freelancer.com/hire/',
+          'Abre resultados de profesionales relacionados con las capacidades requeridas.',
+        url: `https://www.freelancer.com/search/users/?keyword=${query}`,
         source: 'predefined_rule',
       },
       {
@@ -132,8 +121,8 @@ export class NoMatchResolutionService {
         description:
           'Directorio de proveedores y profesionales con perfiles públicos.',
         reason:
-          'Facilita revisar experiencia, ubicación y referencias antes de contactar.',
-        url: 'https://www.linkedin.com/services/',
+          'Abre la búsqueda de servicios con las capacidades requeridas; LinkedIn puede solicitar inicio de sesión.',
+        url: `https://www.linkedin.com/search/results/services/?keywords=${query}`,
         source: 'predefined_rule',
       },
       {

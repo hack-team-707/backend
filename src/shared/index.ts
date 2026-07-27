@@ -52,6 +52,7 @@ export enum Availability {
 }
 
 export enum MatchStatus {
+  SUGGESTED = 'suggested',
   PENDING = 'pending',
   ACCEPTED = 'accepted',
   DECLINED = 'declined',
@@ -103,6 +104,61 @@ export enum ProjectMessageType {
   COMPLETION = 'completion',
   VALIDATION = 'validation',
   ADDITIONAL_WORK = 'additional_work',
+  FILE = 'file',
+  IMAGE = 'image',
+  LINK = 'link',
+  SYSTEM = 'system',
+  MEETING = 'meeting',
+}
+
+export enum ProjectChannelType {
+  GENERAL = 'general',
+  TEAM_INTERNAL = 'team_internal',
+  CUSTOM = 'custom',
+}
+
+export enum ProjectFileVisibility {
+  PROJECT = 'project',
+  CLIENT_AND_TEAM = 'client_and_team',
+  TEAM_ONLY = 'team_only',
+  CONVERSATION = 'conversation',
+}
+
+export enum ProjectFileCategory {
+  REQUIREMENT = 'requirement',
+  EVIDENCE = 'evidence',
+  DESIGN = 'design',
+  SOURCE_CODE = 'source_code',
+  DELIVERABLE = 'deliverable',
+  REPORT = 'report',
+  IMAGE = 'image',
+  OTHER = 'other',
+}
+
+export enum ProjectLinkType {
+  GENERAL = 'general',
+  GITHUB = 'github',
+  GITLAB = 'gitlab',
+  DOCUMENTATION = 'documentation',
+  DESIGN = 'design',
+  MEETING = 'meeting',
+  OTHER = 'other',
+}
+
+export enum ProjectMeetingType {
+  KICKOFF = 'kickoff',
+  FOLLOW_UP = 'follow_up',
+  TECHNICAL = 'technical',
+  CLIENT_REVIEW = 'client_review',
+  DELIVERY = 'delivery',
+  OTHER = 'other',
+}
+
+export enum ProjectMeetingStatus {
+  SCHEDULED = 'scheduled',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
+  RESCHEDULED = 'rescheduled',
 }
 
 export enum EvidenceType {

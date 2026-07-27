@@ -42,6 +42,13 @@ export class SkillCardsController {
   ): Promise<SkillCard[]> {
     return this.service.findMine(user.userId);
   }
+  @Get('users/:ownerId')
+  @Roles(UserRole.REQUESTER, UserRole.SOLVER)
+  findPublishedForOwner(
+    @Param('ownerId') ownerId: string,
+  ): Promise<SkillCard[]> {
+    return this.service.findPublishedForOwner(ownerId);
+  }
   @Patch(':id') update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,

@@ -9,6 +9,7 @@ import { UserRole } from '../../shared';
 import { ConfirmTeamDto } from './dto/team-formation.dto';
 import { Team } from './entities/team.entity';
 import { TeamFormationService } from './team-formation.service';
+import { TeamSuggestionView } from './team-formation.types';
 
 @ApiTags('team-formation')
 @ApiBearerAuth()
@@ -40,7 +41,7 @@ export class TeamFormationController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: ConfirmTeamDto,
-  ): Promise<Team> {
+  ): Promise<TeamSuggestionView> {
     return this.service.confirm(user.userId, id, dto.confirmed);
   }
 }

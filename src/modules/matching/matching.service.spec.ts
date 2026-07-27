@@ -3,6 +3,7 @@ import { createMockRepository } from '../../test-utils/typeorm-repository.mock';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Problem } from '../problems/entities/problem.entity';
 import { SkillCard } from '../skill-cards/entities/skill-card.entity';
+import { UsersService } from '../users/users.service';
 import { Match } from './entities/match.entity';
 import { MatchingService } from './matching.service';
 import { NoMatchResolutionService } from './no-match-resolution.service';
@@ -27,6 +28,9 @@ describe('MatchingService', () => {
       skillCards,
       notifications,
       noMatch,
+      {
+        findPublicByIds: jest.fn().mockResolvedValue([]),
+      } as unknown as UsersService,
     );
     const now = new Date().toISOString();
     await problems.save({
@@ -77,6 +81,49 @@ describe('MatchingService', () => {
       solverId: 'solver',
       coverage: 100,
       matchedSkillIds: ['diagnostico de hardware'],
+      status: 'suggested',
     });
+    expect(notifications.createForUsersSafely).toHaveBeenCalledWith(
+      ['solver'],
+      expect.objectContaining({
+        title: 'Nueva oportunidad compatible',
+        href: '/opportunities',
+      }),
+      'requester',
+    );
+    await matches.save(ranked[0]);
+
+    await matches.save({
+      ...ranked[0],
+      id: 'application-match',
+    });
+    const application = await service.apply('solver', 'application-match');
+    expect(application).toMatchObject({
+      status: 'accepted',
+      invitationKind: undefined,
+    });
+    expect(notifications.createSafely).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'requester',
+        title: 'Un solucionador quiere postular',
+        href: '/problems/problem-1',
+      }),
+    );
+
+    const requested = await service.requestSolver('requester', ranked[0].id);
+    expect(requested.status).toBe('pending');
+    expect(requested.requestedAt).toBeDefined();
+    expect(notifications.createSafely).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'solver',
+        title: 'Fuiste seleccionado para un trabajo',
+      }),
+    );
+    expect(ranked[0]).toMatchObject({
+      invitationKind: 'individual',
+    });
+
+    await service.requestSolver('requester', ranked[0].id);
+    expect(notifications.createSafely).toHaveBeenCalledTimes(3);
   });
 });

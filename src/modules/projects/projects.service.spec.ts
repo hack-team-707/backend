@@ -26,11 +26,16 @@ describe('ProjectsService collaboration', () => {
   function setup() {
     const projects = {
       findOneBy: jest.fn().mockResolvedValue({ ...project }),
+      create: jest.fn((value: Project) => value),
       save: jest.fn(async (value: Project) => value),
     };
     const realtime = { emitToUsers: jest.fn() };
     const notifications = {
       createSafely: jest.fn().mockResolvedValue(undefined),
+      createForUsersSafely: jest.fn().mockResolvedValue(undefined),
+    };
+    const room = {
+      ensureRoom: jest.fn().mockResolvedValue(undefined),
     };
     const users = {
       searchPublic: jest.fn().mockResolvedValue([
@@ -115,8 +120,16 @@ describe('ProjectsService collaboration', () => {
       users as never,
       skillCards as never,
       aiEngine as never,
+      room as never,
     );
-    return { service, projects, invitations, notifications, realtime };
+    return {
+      service,
+      projects,
+      invitations,
+      notifications,
+      realtime,
+      room,
+    };
   }
 
   it('uses AI-required skills to recommend a matching collaborator', async () => {
@@ -133,6 +146,32 @@ describe('ProjectsService collaboration', () => {
         matchingSkills: ['UX'],
       }),
     );
+  });
+
+  it('returns the winning project when concurrent creation hits uniqueness', async () => {
+    const { service, projects, notifications, room } = setup();
+    projects.findOneBy
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(project);
+    projects.save.mockRejectedValueOnce({ code: '23505' });
+
+    const result = await service.createFromAcceptedProposal({
+      proposalId: project.proposalId,
+      problemId: project.problemId,
+      requesterId: project.requesterId,
+      leadSolverId: project.leadSolverId!,
+      solverIds: project.solverIds,
+      title: project.title,
+      acceptanceCriteria: project.acceptanceCriteria,
+      deliverySchedule: project.deliverySchedule,
+      price: project.totalPrice!,
+      currency: project.currency!,
+    });
+
+    expect(result).toBe(project);
+    expect(room.ensureRoom).toHaveBeenCalledWith(project);
+    expect(notifications.createForUsersSafely).not.toHaveBeenCalled();
   });
 
   it('creates a pending invitation without granting project access', async () => {

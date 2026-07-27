@@ -33,6 +33,17 @@ interface Environment {
   HIMALAYAS_API_URL: string;
   FREELANCER_API_URL: string;
   FREELANCER_OAUTH_TOKEN?: string;
+  FREELANCER_ENABLED: boolean;
+  FREELANCER_ENVIRONMENT: 'sandbox' | 'production';
+  FREELANCER_BASE_URL: string;
+  FREELANCER_TIMEOUT_MS: number;
+  GOOGLE_PLACES_ENABLED: boolean;
+  GOOGLE_PLACES_API_KEY?: string;
+  GOOGLE_PLACES_BASE_URL: string;
+  GOOGLE_PLACES_LANGUAGE: string;
+  GOOGLE_PLACES_REGION: string;
+  GOOGLE_PLACES_DEFAULT_RADIUS_METERS: number;
+  GOOGLE_PLACES_TIMEOUT_MS: number;
 }
 
 export function validateEnvironment(
@@ -65,6 +76,13 @@ export function validateEnvironment(
     raw.MIN_INTERNAL_MATCH_COVERAGE ?? 60,
   );
   const noMatchAiGuidanceValue = raw.NO_MATCH_AI_GUIDANCE_ENABLED ?? 'true';
+  const freelancerEnabledValue = raw.FREELANCER_ENABLED ?? 'true';
+  const googlePlacesEnabledValue = raw.GOOGLE_PLACES_ENABLED ?? 'false';
+  const freelancerTimeout = Number(raw.FREELANCER_TIMEOUT_MS ?? 8000);
+  const googlePlacesTimeout = Number(raw.GOOGLE_PLACES_TIMEOUT_MS ?? 8000);
+  const googlePlacesRadius = Number(
+    raw.GOOGLE_PLACES_DEFAULT_RADIUS_METERS ?? 10000,
+  );
   const dataEncryptionKey = raw.DATA_ENCRYPTION_KEY;
   const aiProvider =
     typeof raw.AI_PROVIDER === 'string' ? raw.AI_PROVIDER : 'disabled';
@@ -149,6 +167,42 @@ export function validateEnvironment(
   ) {
     throw new Error('NO_MATCH_AI_GUIDANCE_ENABLED must be true or false');
   }
+  for (const [name, value] of [
+    ['FREELANCER_ENABLED', freelancerEnabledValue],
+    ['GOOGLE_PLACES_ENABLED', googlePlacesEnabledValue],
+  ] as const) {
+    if (!['true', 'false', true, false].includes(value as never)) {
+      throw new Error(`${name} must be true or false`);
+    }
+  }
+  if (
+    !Number.isInteger(freelancerTimeout) ||
+    freelancerTimeout < 1000 ||
+    freelancerTimeout > 20000 ||
+    !Number.isInteger(googlePlacesTimeout) ||
+    googlePlacesTimeout < 1000 ||
+    googlePlacesTimeout > 20000
+  ) {
+    throw new Error('External talent timeouts must be between 1000 and 20000');
+  }
+  if (
+    !Number.isInteger(googlePlacesRadius) ||
+    googlePlacesRadius < 100 ||
+    googlePlacesRadius > 50000
+  ) {
+    throw new Error(
+      'GOOGLE_PLACES_DEFAULT_RADIUS_METERS must be between 100 and 50000',
+    );
+  }
+  if (
+    (googlePlacesEnabledValue === true ||
+      googlePlacesEnabledValue === 'true') &&
+    !optionalString(raw.GOOGLE_PLACES_API_KEY)
+  ) {
+    throw new Error(
+      'GOOGLE_PLACES_API_KEY is required when GOOGLE_PLACES_ENABLED=true',
+    );
+  }
   if (configuredVapidValues !== 0 && configuredVapidValues !== 3) {
     throw new Error(
       'VAPID_SUBJECT, VAPID_PUBLIC_KEY, and VAPID_PRIVATE_KEY must be configured together',
@@ -232,5 +286,27 @@ export function validateEnvironment(
           FREELANCER_OAUTH_TOKEN: optionalString(raw.FREELANCER_OAUTH_TOKEN),
         }
       : {}),
+    FREELANCER_ENABLED:
+      freelancerEnabledValue === true || freelancerEnabledValue === 'true',
+    FREELANCER_ENVIRONMENT:
+      optionalString(raw.FREELANCER_ENVIRONMENT) === 'sandbox'
+        ? 'sandbox'
+        : 'production',
+    FREELANCER_BASE_URL:
+      optionalString(raw.FREELANCER_BASE_URL)?.replace(/\/$/, '') ??
+      'https://www.freelancer.com',
+    FREELANCER_TIMEOUT_MS: freelancerTimeout,
+    GOOGLE_PLACES_ENABLED:
+      googlePlacesEnabledValue === true || googlePlacesEnabledValue === 'true',
+    ...(optionalString(raw.GOOGLE_PLACES_API_KEY)
+      ? { GOOGLE_PLACES_API_KEY: optionalString(raw.GOOGLE_PLACES_API_KEY) }
+      : {}),
+    GOOGLE_PLACES_BASE_URL:
+      optionalString(raw.GOOGLE_PLACES_BASE_URL)?.replace(/\/$/, '') ??
+      'https://places.googleapis.com/v1',
+    GOOGLE_PLACES_LANGUAGE: optionalString(raw.GOOGLE_PLACES_LANGUAGE) ?? 'es',
+    GOOGLE_PLACES_REGION: optionalString(raw.GOOGLE_PLACES_REGION) ?? 'PE',
+    GOOGLE_PLACES_DEFAULT_RADIUS_METERS: googlePlacesRadius,
+    GOOGLE_PLACES_TIMEOUT_MS: googlePlacesTimeout,
   };
 }

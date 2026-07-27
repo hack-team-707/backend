@@ -35,7 +35,11 @@ export class Proposal {
   @Index()
   submittedBy!: string;
 
-  @Column({ nullable: true })
+  @Column('uuid', { nullable: true })
+  @Index('IDX_proposals_team_unique', {
+    unique: true,
+    where: '"teamId" IS NOT NULL',
+  })
   teamId?: string;
 
   @Column('text', { array: true })

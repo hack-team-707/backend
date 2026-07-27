@@ -4,6 +4,7 @@ import { AiEngineModule } from '../ai-engine/ai-engine.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { Problem } from '../problems/entities/problem.entity';
 import { SkillCard } from '../skill-cards/entities/skill-card.entity';
+import { UsersModule } from '../users/users.module';
 import { Match } from './entities/match.entity';
 import { NoMatchResolution } from './entities/no-match-resolution.entity';
 import { MatchingController } from './matching.controller';
@@ -16,6 +17,7 @@ import { OpportunitySearchService } from './opportunity-search.service';
     TypeOrmModule.forFeature([Match, NoMatchResolution, Problem, SkillCard]),
     AiEngineModule,
     NotificationsModule,
+    UsersModule,
   ],
   controllers: [MatchingController],
   providers: [

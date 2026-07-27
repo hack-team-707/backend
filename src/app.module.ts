@@ -20,12 +20,19 @@ import { AddProjectLead1785600000000 } from './migrations/1785600000000-AddProje
 import { AddProjectInvitations1785700000000 } from './migrations/1785700000000-AddProjectInvitations';
 import { AddProjectBudgetShares1785800000000 } from './migrations/1785800000000-AddProjectBudgetShares';
 import { AddNoMatchResolutions1785900000000 } from './migrations/1785900000000-AddNoMatchResolutions';
+import { AddExternalTalent1786000000000 } from './migrations/1786000000000-AddExternalTalent';
+import { AddMatchRequests1786100000000 } from './migrations/1786100000000-AddMatchRequests';
+import { AddTeamSkillGaps1786200000000 } from './migrations/1786200000000-AddTeamSkillGaps';
+import { AddMatchInvitationContext1786300000000 } from './migrations/1786300000000-AddMatchInvitationContext';
+import { OneProposalPerTeam1786400000000 } from './migrations/1786400000000-OneProposalPerTeam';
+import { AddPrivateProjectRoom1786500000000 } from './migrations/1786500000000-AddPrivateProjectRoom';
 import { AdminModule } from './modules/admin/admin.module';
 import { AiEngineModule } from './modules/ai-engine/ai-engine.module';
 import { CapabilityPortfoliosModule } from './modules/capability-portfolios/capability-portfolios.module';
 import { ConversationsModule } from './modules/conversations/conversations.module';
 import { DisputesModule } from './modules/disputes/disputes.module';
 import { EvidenceModule } from './modules/evidence/evidence.module';
+import { ExternalTalentModule } from './modules/external-talent/external-talent.module';
 import { MatchingModule } from './modules/matching/matching.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ProblemsModule } from './modules/problems/problems.module';
@@ -64,6 +71,12 @@ import { UsersModule } from './modules/users/users.module';
           AddProjectInvitations1785700000000,
           AddProjectBudgetShares1785800000000,
           AddNoMatchResolutions1785900000000,
+          AddExternalTalent1786000000000,
+          AddMatchRequests1786100000000,
+          AddTeamSkillGaps1786200000000,
+          AddMatchInvitationContext1786300000000,
+          OneProposalPerTeam1786400000000,
+          AddPrivateProjectRoom1786500000000,
         ],
         migrationsRun: config.getOrThrow<boolean>('DB_RUN_MIGRATIONS'),
         autoLoadEntities: true,
@@ -81,6 +94,7 @@ import { UsersModule } from './modules/users/users.module';
     ProjectsModule,
     ProposalsModule,
     EvidenceModule,
+    ExternalTalentModule,
     NotificationsModule,
     ReputationModule,
     AdminModule,

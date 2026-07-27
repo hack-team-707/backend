@@ -9,6 +9,7 @@ import { Problem } from '../problems/entities/problem.entity';
 import { ProblemsService } from '../problems/problems.service';
 import { SkillCard } from '../skill-cards/entities/skill-card.entity';
 import { SkillCardsService } from '../skill-cards/skill-cards.service';
+import { TeamFormationService } from '../team-formation/team-formation.service';
 import {
   Conversation,
   ConversationActionType,
@@ -27,7 +28,30 @@ describe('ConversationsService', () => {
   const matchingRank = jest.fn().mockResolvedValue([]);
   const matching = {
     rank: matchingRank,
+    toSuggestions: jest.fn().mockImplementation(async (matches) =>
+      matches.map(
+        (match: { id: string; solverId: string; coverage: number }) => ({
+          id: match.id,
+          problemId: 'problem-1',
+          solverId: match.solverId,
+          displayName: 'Solucionador compatible',
+          coverage: match.coverage,
+          compatibility: 90,
+          contributedSkills: ['Diagnóstico de hardware'],
+          reason: 'Cobertura compatible.',
+          availability: 'pending_confirmation',
+          status: 'suggested',
+        }),
+      ),
+    ),
+    findForProblem: jest.fn().mockResolvedValue([]),
+    clearNoMatchResolution: jest.fn().mockResolvedValue(undefined),
   } as unknown as MatchingService;
+  const teamFormation = {
+    form: jest.fn(),
+    toSuggestion: jest.fn(),
+    findSuggestionForProblem: jest.fn().mockResolvedValue(undefined),
+  } as unknown as TeamFormationService;
   const service = new ConversationsService(
     createMockRepository<Conversation>(),
     createMockRepository<Message>(),
@@ -43,6 +67,7 @@ describe('ConversationsService', () => {
       search: jest.fn(),
     } as unknown as OpportunitySearchService,
     matching,
+    teamFormation,
     jwt,
   );
 
@@ -70,7 +95,7 @@ describe('ConversationsService', () => {
 
   it('starts matching compatible solvers after a problem is confirmed', async () => {
     matchingRank.mockResolvedValueOnce([
-      { id: 'match-1', solverId: 'solver-1' },
+      { id: 'match-1', solverId: 'solver-1', coverage: 100 },
     ]);
     const conversation = await service.create('requester', {
       type: ConversationType.PROBLEM,
@@ -109,6 +134,101 @@ describe('ConversationsService', () => {
       }),
     );
     expect(messages.at(-1)?.text).toContain('Encontré 1 persona');
+  });
+
+  it('keeps individual choices and exposes an optional team when one solver covers every skill', async () => {
+    matchingRank.mockResolvedValueOnce([
+      { id: 'match-1', solverId: 'solver-1', coverage: 100 },
+      { id: 'match-2', solverId: 'solver-2', coverage: 50 },
+    ]);
+    const team = {
+      id: 'team-1',
+      problemId: 'problem-1',
+      members: [],
+    };
+    const suggestion = {
+      id: 'team-1',
+      problemId: 'problem-1',
+      name: 'Equipo complementario recomendado',
+      coverage: 100,
+      compatibility: 74,
+      availability: 'pending_confirmation',
+      status: 'suggested',
+      leadSolverId: 'solver-1',
+      rationale: ['Cobertura complementaria completa.'],
+      optionalAlternative: true,
+      members: [
+        {
+          solverId: 'solver-1',
+          displayName: 'Ana React',
+          role: 'lead',
+          responsibilitySkills: ['react', 'javascript'],
+          compatibility: 76,
+          reason: 'Aporta React y JavaScript.',
+        },
+        {
+          solverId: 'solver-2',
+          displayName: 'Luis Web',
+          role: 'member',
+          responsibilitySkills: ['desarrollo web'],
+          compatibility: 72,
+          reason: 'Aporta desarrollo web.',
+        },
+      ],
+    };
+    (teamFormation.form as jest.Mock).mockResolvedValueOnce(team);
+    (teamFormation.toSuggestion as jest.Mock).mockResolvedValueOnce(suggestion);
+    const refreshedSuggestion = {
+      ...suggestion,
+      members: suggestion.members.map((member, index) => ({
+        ...member,
+        matchId: `match-${index + 1}`,
+        requestStatus: 'suggested',
+      })),
+    };
+    (teamFormation.findSuggestionForProblem as jest.Mock).mockResolvedValueOnce(
+      refreshedSuggestion,
+    );
+    (matching.findForProblem as jest.Mock).mockResolvedValueOnce([
+      { id: 'match-1', solverId: 'solver-1', coverage: 100 },
+      { id: 'match-2', solverId: 'solver-2', coverage: 50 },
+    ]);
+
+    const conversation = await service.create('team-requester', {
+      type: ConversationType.PROBLEM,
+    });
+    await service.addMessage('team-requester', conversation.id, {
+      structuredCard: {
+        actionType: ConversationActionType.PUBLISH_PROBLEM,
+        payload: {
+          description: 'Necesito corregir una aplicación React.',
+        },
+        analysis: {
+          category: 'Tecnología',
+          urgencyLevel: 'Medium',
+          requiredSkills: ['React', 'JavaScript', 'Desarrollo web'],
+          summary: 'Corrección de aplicación React.',
+        },
+      },
+    } as never);
+
+    const confirmed = await service.confirm('team-requester', conversation.id);
+    const messages = await service.getMessages(
+      'team-requester',
+      conversation.id,
+    );
+
+    expect(teamFormation.form).toHaveBeenCalledWith(
+      'team-requester',
+      confirmed.linkedEntityId,
+    );
+    expect(messages.at(-1)?.text).toContain('alternativa de equipo');
+    expect(
+      messages.at(-1)?.analysisMetadata?.individualSuggestions,
+    ).toHaveLength(2);
+    expect(messages.at(-1)?.analysisMetadata?.teamSuggestion).toEqual(
+      refreshedSuggestion,
+    );
   });
 
   it('preserves an AI guest conversation when an authenticated user claims it', async () => {
@@ -154,6 +274,7 @@ describe('ConversationsService', () => {
       {
         rank: jest.fn(),
       } as unknown as MatchingService,
+      teamFormation,
       guestJwt,
     );
 

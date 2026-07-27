@@ -6,11 +6,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import {
   MatchStatus,
   ProblemStatus,
   ProposalStatus,
+  TeamRole,
   TeamStatus,
 } from '../../shared';
 import { AiEngineService } from '../ai-engine/ai-engine.service';
@@ -53,14 +54,14 @@ export class ProposalsService {
     if (!match) throw new NotFoundException('Opportunity match not found');
     const problem = await this.problems.findOneBy({ id: match.problemId });
     if (!problem) throw new NotFoundException('Problem not found');
-    const teams = await this.teams.find({
-      where: { problemId: match.problemId },
-    });
-    const team = teams.find(
-      (item) =>
-        item.status === TeamStatus.CONFIRMED &&
-        item.members.some((member) => member.solverId === solverId),
-    );
+    const team =
+      match.invitationKind === 'team' && match.teamId
+        ? await this.teams.findOneBy({
+            id: match.teamId,
+            problemId: match.problemId,
+            status: TeamStatus.CONFIRMED,
+          })
+        : undefined;
     const draft = await this.aiEngine.generateProposalDraft({
       problem:
         problem.description?.trim() || 'Problema sin descripción textual',
@@ -90,10 +91,15 @@ export class ProposalsService {
   async submit(solverId: string, dto: SubmitProposalDto): Promise<Proposal> {
     const problem = await this.problems.findOneBy({ id: dto.problemId });
     if (!problem) throw new NotFoundException('Problem not found');
-    const existing = await this.proposals.findOne({
-      where: { problemId: dto.problemId, submittedBy: solverId },
-      order: { createdAt: 'DESC' },
-    });
+    const existing = dto.teamId
+      ? await this.proposals.findOne({
+          where: { teamId: dto.teamId },
+          order: { createdAt: 'DESC' },
+        })
+      : await this.proposals.findOne({
+          where: { problemId: dto.problemId, submittedBy: solverId },
+          order: { createdAt: 'DESC' },
+        });
     if (existing) return existing;
     const solverIds = await this.authorizedSolvers(solverId, dto);
     const now = new Date().toISOString();
@@ -137,8 +143,9 @@ export class ProposalsService {
     } catch (error) {
       if (!this.isUniqueViolation(error)) throw error;
       const concurrent = await this.proposals.findOneBy({
-        problemId: dto.problemId,
-        submittedBy: solverId,
+        ...(dto.teamId
+          ? { teamId: dto.teamId }
+          : { problemId: dto.problemId, submittedBy: solverId }),
       });
       if (!concurrent) throw error;
       return concurrent;
@@ -158,7 +165,7 @@ export class ProposalsService {
         type: NotificationType.PROPOSAL_RECEIVED,
         title: 'Nueva propuesta recibida',
         message: `Recibiste una propuesta para: ${problem.description?.slice(0, 100) ?? 'tu problema publicado'}`,
-        href: `/problems?proposal=${proposal.id}`,
+        href: `/problems/${proposal.problemId}?proposal=${proposal.id}`,
       });
       this.realtime.emitToUser(problem.ownerId, 'proposal.created', proposal);
     }
@@ -259,7 +266,7 @@ export class ProposalsService {
             : 'Respondieron a tu propuesta',
         message:
           dto.note?.trim() || `La propuesta cambió al estado ${dto.status}.`,
-        href: `/opportunities?proposal=${proposal.id}`,
+        href: `/opportunities?proposal=${proposal.id}&problem=${proposal.problemId}`,
       },
       requesterId,
     );
@@ -317,7 +324,7 @@ export class ProposalsService {
         type: NotificationType.PROPOSAL_RECEIVED,
         title: 'Propuesta reajustada',
         message: `El solucionador envió la revisión ${saved.revision} de la propuesta.`,
-        href: `/problems?proposal=${saved.id}`,
+        href: `/problems/${saved.problemId}?proposal=${saved.id}`,
       });
       this.realtime.emitToUser(proposal.requesterId, 'proposal.updated', saved);
     }
@@ -332,14 +339,20 @@ export class ProposalsService {
     if (proposal.teamId) {
       const team = await this.teams.findOneBy({ id: proposal.teamId });
       if (!team || team.status !== TeamStatus.CONFIRMED)
-        throw new ConflictException('Confirmed proposal team was not found');
+        throw new ConflictException(
+          'No se encontró el equipo confirmado de la propuesta',
+        );
       const expected = team.members.map((member) => member.solverId).sort();
       if (expected.join(',') !== described.join(','))
-        throw new ConflictException('Proposal must describe every team member');
+        throw new ConflictException(
+          'La propuesta debe describir a todos los integrantes del equipo',
+        );
       return;
     }
     if (described.some((memberId) => memberId !== proposal.submittedBy))
-      throw new ForbiddenException('Individual proposal cannot include a team');
+      throw new ForbiddenException(
+        'Una propuesta individual no puede incluir integrantes de un equipo',
+      );
   }
 
   private async authorizedSolvers(
@@ -349,18 +362,73 @@ export class ProposalsService {
     if (dto.teamId) {
       const team = await this.teams.findOneBy({ id: dto.teamId });
       if (!team || team.problemId !== dto.problemId)
-        throw new NotFoundException('Team not found for problem');
+        throw new NotFoundException('No se encontró el equipo del problema');
       if (team.status !== TeamStatus.CONFIRMED)
-        throw new ConflictException('Team must be confirmed');
-      const lead = team.members.find((member) => member.role === 'lead');
-      if (lead?.solverId !== solverId)
-        throw new ForbiddenException('Only team lead can submit proposal');
+        throw new ConflictException('El equipo debe estar confirmado');
+      const existingTeamProposal = await this.proposals.findOneBy({
+        teamId: team.id,
+      });
+      if (existingTeamProposal) return existingTeamProposal.solverIds;
+      const teamMatches = await this.matches.findBy({
+        id: In(team.members.map((member) => member.matchId)),
+      });
+      if (
+        teamMatches.length !== team.members.length ||
+        teamMatches.some((match) => match.status !== MatchStatus.ACCEPTED)
+      )
+        throw new ConflictException(
+          'Todos los integrantes deben aceptar la invitación antes de enviar la propuesta',
+        );
+      const submittingMember = team.members.find(
+        (member) => member.solverId === solverId,
+      );
+      if (!submittingMember)
+        throw new ForbiddenException(
+          'Sólo un integrante del equipo puede enviar su propuesta',
+        );
+      const currentLead = team.members.find((member) => member.role === 'lead');
+      if (currentLead?.solverId !== solverId) {
+        const submittingMatch = teamMatches.find(
+          (match) => match.solverId === solverId,
+        );
+        if (!submittingMatch || submittingMatch.score < 50)
+          throw new ForbiddenException(
+            'Para asumir el liderazgo del equipo necesitas al menos 50% de compatibilidad',
+          );
+        team.members = team.members.map((member) => ({
+          ...member,
+          role: member.solverId === solverId ? TeamRole.LEAD : TeamRole.MEMBER,
+        }));
+        team.updatedAt = new Date().toISOString();
+        await this.teams.save(team);
+        if (currentLead && currentLead.solverId !== solverId) {
+          await this.notifications.createSafely({
+            userId: currentLead.solverId,
+            type: NotificationType.TEAM_INVITATION,
+            title: 'Cambió el liderazgo de tu equipo',
+            message:
+              'Otro integrante con compatibilidad suficiente envió la primera propuesta y asumió el liderazgo. Tú continúas como integrante del equipo.',
+            href: `/opportunities?problem=${team.problemId}`,
+          });
+          this.realtime.emitToUser(
+            currentLead.solverId,
+            'team.leadership.changed',
+            {
+              teamId: team.id,
+              previousLeadId: currentLead.solverId,
+              leadSolverId: solverId,
+            },
+          );
+        }
+      }
       const solverIds = team.members.map((member) => member.solverId).sort();
       const described = (dto.teamMembers ?? [])
         .map((member) => member.solverId)
         .sort();
       if (solverIds.join(',') !== described.join(','))
-        throw new ConflictException('Proposal must describe every team member');
+        throw new ConflictException(
+          'La propuesta debe describir a todos los integrantes del equipo',
+        );
       return solverIds;
     }
     const match = await this.matches.findOneBy({
@@ -368,9 +436,13 @@ export class ProposalsService {
       solverId,
     });
     if (!match || match.status !== MatchStatus.ACCEPTED)
-      throw new ForbiddenException('Solver must accept the match first');
+      throw new ForbiddenException(
+        'Primero debes aceptar la oportunidad para enviar una propuesta',
+      );
     if (dto.teamMembers?.some((member) => member.solverId !== solverId))
-      throw new ForbiddenException('Individual proposal cannot include a team');
+      throw new ForbiddenException(
+        'Una propuesta individual no puede incluir integrantes de un equipo',
+      );
     return [solverId];
   }
 }

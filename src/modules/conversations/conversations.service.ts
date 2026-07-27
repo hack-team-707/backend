@@ -22,10 +22,15 @@ import { CreateProblemDto } from '../problems/dto/problem.dto';
 import { ProblemsService } from '../problems/problems.service';
 import { CapabilityPortfoliosService } from '../capability-portfolios/capability-portfolios.service';
 import { MatchingService } from '../matching/matching.service';
+import { IndividualMatchSuggestionView } from '../matching/individual-match.types';
 import { NoMatchResolutionView } from '../matching/no-match-resolution.types';
 import { OpportunitySearchService } from '../matching/opportunity-search.service';
 import { CreateSkillCardDto } from '../skill-cards/dto/skill-card.dto';
 import { SkillCardsService } from '../skill-cards/skill-cards.service';
+import { ExternalTalentService } from '../external-talent/services/external-talent.service';
+import { ExternalTalentSearchResponse } from '../external-talent/interfaces/talent-provider.interface';
+import { TeamFormationService } from '../team-formation/team-formation.service';
+import { TeamSuggestionView } from '../team-formation/team-formation.types';
 import {
   CreateConversationDto,
   CreateMessageDto,
@@ -71,9 +76,12 @@ export class ConversationsService {
     private readonly capabilityPortfolios: CapabilityPortfoliosService,
     private readonly opportunitySearch: OpportunitySearchService,
     private readonly matching: MatchingService,
+    private readonly teamFormation: TeamFormationService,
     private readonly jwtService: JwtService,
     @Optional()
     private readonly locationEncryption?: LocationEncryptionService,
+    @Optional()
+    private readonly externalTalent?: ExternalTalentService,
   ) {}
 
   async createGuest(message: string): Promise<GuestConversationResult> {
@@ -380,12 +388,92 @@ export class ConversationsService {
     ownerId: string,
     conversationId: string,
   ): Promise<Message[]> {
-    await this.owned(ownerId, conversationId);
+    const conversation = await this.owned(ownerId, conversationId);
     const messages = await this.messages.find({
       where: { conversationId },
       order: { createdAt: 'ASC' },
     });
-    return messages.map((message) => this.safeMessage(message));
+    return Promise.all(
+      messages.map(async (message) => {
+        const safe = this.safeMessage(message);
+        if (
+          safe.role === MessageRole.SYSTEM &&
+          conversation.linkedEntityId &&
+          safe.text?.startsWith('Problema publicado correctamente')
+        ) {
+          try {
+            const teamSuggestion =
+              await this.teamFormation.findSuggestionForProblem(
+                ownerId,
+                conversation.linkedEntityId,
+              );
+            if (teamSuggestion) {
+              const matches = await this.matching.findForProblem(
+                ownerId,
+                conversation.linkedEntityId,
+              );
+              const individualSuggestions = matches.some(
+                (match) => match.coverage >= 100,
+              )
+                ? await this.matching.toSuggestions(matches)
+                : undefined;
+              safe.text = teamSuggestion.optionalAlternative
+                ? `Problema publicado correctamente. Encontré ${matches.length} personas compatibles y una alternativa de equipo de ${teamSuggestion.members.length} integrantes.`
+                : `Problema publicado correctamente. Encontré un equipo complementario de ${teamSuggestion.members.length} personas que cubre el ${Math.round(teamSuggestion.coverage)}% de las capacidades requeridas.`;
+              safe.analysisMetadata = {
+                intent: 'submit_problem',
+                confidence: 1,
+                missingFields: [],
+                provider: 'system',
+                teamSuggestion,
+                ...(individualSuggestions ? { individualSuggestions } : {}),
+              };
+              return safe;
+            }
+            if (
+              safe.analysisMetadata?.teamSuggestion ||
+              safe.analysisMetadata?.individualSuggestions
+            )
+              return safe;
+            const matches = await this.matching.findForProblem(
+              ownerId,
+              conversation.linkedEntityId,
+            );
+            if (matches.length) {
+              safe.analysisMetadata = {
+                intent: 'submit_problem',
+                confidence: 1,
+                missingFields: [],
+                provider: 'system',
+                individualSuggestions:
+                  await this.matching.toSuggestions(matches),
+              };
+            }
+          } catch {
+            // Historical messages remain readable if enrichment is unavailable.
+          }
+        }
+        const storedExternal = safe.analysisMetadata?.externalTalent;
+        if (!storedExternal || !this.externalTalent) return safe;
+        try {
+          const [latest] = await this.externalTalent.findForProblem(
+            ownerId,
+            storedExternal.problemId,
+          );
+          if (!latest || latest.results.length === 0) return safe;
+          safe.analysisMetadata = {
+            ...safe.analysisMetadata!,
+            externalTalent: {
+              ...latest,
+              aiGuidance: storedExternal.aiGuidance,
+            },
+          };
+          return safe;
+        } catch {
+          return safe;
+        }
+      }),
+    );
   }
 
   async confirm(
@@ -424,6 +512,9 @@ export class ConversationsService {
     let linkedEntityId: string;
     let confirmationText: string;
     let noMatchResolution: NoMatchResolutionView | undefined;
+    let externalTalent: ExternalTalentSearchResponse | undefined;
+    let teamSuggestion: TeamSuggestionView | undefined;
+    let individualSuggestions: IndividualMatchSuggestionView[] | undefined;
     try {
       if (card.actionType === ConversationActionType.PUBLISH_PROBLEM) {
         const dto = plainToInstance(CreateProblemDto, {
@@ -445,13 +536,75 @@ export class ConversationsService {
               limit: 20,
             });
             if (matches.length) {
-              confirmationText = `Problema publicado correctamente. Encontré ${matches.length} persona${matches.length === 1 ? '' : 's'} con capacidades compatibles o similares. Puedes revisar el resultado en Mis problemas.`;
+              const completeIndividual = matches.some(
+                (match) => match.coverage >= 100,
+              );
+              if (matches.length >= 2) {
+                try {
+                  const team = await this.teamFormation.form(
+                    ownerId,
+                    problem.id,
+                  );
+                  teamSuggestion = await this.teamFormation.toSuggestion(team);
+                  await this.matching.clearNoMatchResolution(problem.id);
+                } catch (error) {
+                  this.logger.warn(
+                    `Automatic team formation failed for problem ${problem.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+                  );
+                }
+              }
+              confirmationText = teamSuggestion?.optionalAlternative
+                ? `Problema publicado correctamente. Encontré ${matches.length} personas compatibles y una alternativa de equipo de ${teamSuggestion.members.length} integrantes.`
+                : teamSuggestion
+                  ? `Problema publicado correctamente. Encontré un equipo complementario de ${teamSuggestion.members.length} personas que cubre el ${Math.round(teamSuggestion.coverage)}% de las capacidades requeridas.`
+                  : `Problema publicado correctamente. Encontré ${matches.length} persona${matches.length === 1 ? '' : 's'} con capacidades compatibles o similares. Puedes revisar el resultado en Mis problemas.`;
+              if (completeIndividual || !teamSuggestion) {
+                individualSuggestions =
+                  await this.matching.toSuggestions(matches);
+              }
             } else {
               noMatchResolution = await this.matching.findNoMatchResolution(
                 ownerId,
                 problem.id,
               );
-              confirmationText = `Problema publicado correctamente. ${noMatchResolution.message}`;
+              if (this.externalTalent) {
+                try {
+                  const geolocation =
+                    card.payload.geolocation &&
+                    typeof card.payload.geolocation === 'object'
+                      ? (card.payload.geolocation as Record<string, unknown>)
+                      : undefined;
+                  externalTalent = await this.externalTalent.search(ownerId, {
+                    problemId: problem.id,
+                    title:
+                      card.analysis?.summary ??
+                      String(card.payload.description ?? 'Problema publicado'),
+                    description: String(card.payload.description ?? ''),
+                    category: card.analysis?.category ?? 'Servicios',
+                    requiredSkills,
+                    language: 'es',
+                    countryCode: 'PE',
+                    latitude:
+                      typeof geolocation?.latitude === 'number'
+                        ? geolocation.latitude
+                        : undefined,
+                    longitude:
+                      typeof geolocation?.longitude === 'number'
+                        ? geolocation.longitude
+                        : undefined,
+                    limit: 10,
+                    internalCandidatesFound: 0,
+                    minimumInternalMatch: noMatchResolution.minimumCoverage,
+                  });
+                } catch (error) {
+                  this.logger.warn(
+                    `External talent fallback failed for problem ${problem.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+                  );
+                }
+              }
+              confirmationText = externalTalent
+                ? `Problema publicado correctamente. No encontramos especialistas internos con el umbral requerido. ${externalTalent.results.length ? `Encontré ${externalTalent.results.length} alternativa${externalTalent.results.length === 1 ? '' : 's'} externa${externalTalent.results.length === 1 ? '' : 's'} para que las revises.` : 'La orientación inicial está disponible; los proveedores externos no devolvieron perfiles configurados en este momento.'}`
+                : `Problema publicado correctamente. ${noMatchResolution.message}`;
             }
           } catch (error) {
             this.logger.warn(
@@ -503,14 +656,20 @@ export class ConversationsService {
         role: MessageRole.SYSTEM,
         text: confirmationText,
         mediaUrls: [],
-        ...(noMatchResolution
+        ...(noMatchResolution ||
+        externalTalent ||
+        teamSuggestion ||
+        individualSuggestions
           ? {
               analysisMetadata: {
                 intent: 'submit_problem' as const,
                 confidence: 1,
                 missingFields: [],
                 provider: 'system',
-                noMatchResolution,
+                ...(noMatchResolution ? { noMatchResolution } : {}),
+                ...(externalTalent ? { externalTalent } : {}),
+                ...(teamSuggestion ? { teamSuggestion } : {}),
+                ...(individualSuggestions ? { individualSuggestions } : {}),
               },
             }
           : {}),

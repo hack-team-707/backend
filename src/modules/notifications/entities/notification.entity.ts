@@ -2,6 +2,9 @@ import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
 export enum NotificationType {
   MATCH_FOUND = 'match_found',
+  OPPORTUNITY_AVAILABLE = 'opportunity_available',
+  MATCH_RESPONSE = 'match_response',
+  TEAM_INVITATION = 'team_invitation',
   NO_INTERNAL_MATCH = 'no_internal_match',
   PROPOSAL_RECEIVED = 'proposal_received',
   PROPOSAL_RESPONDED = 'proposal_responded',

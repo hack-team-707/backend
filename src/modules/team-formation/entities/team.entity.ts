@@ -28,6 +28,9 @@ export class Team {
   @Column('text', { array: true })
   coveredSkillIds!: string[];
 
+  @Column('text', { array: true, default: () => "'{}'" })
+  missingSkillIds!: string[];
+
   @Column('double precision')
   coverage!: number;
 
