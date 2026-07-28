@@ -20,7 +20,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Run tests
         run: pnpm test
@@ -41,7 +41,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies and build
-        run: pnpm install && pnpm run build
+        run: pnpm install --no-frozen-lockfile && pnpm run build
 
       - name: Copy artifacts to EC2 via SCP
         uses: appleboy/scp-action@v0.1.7
