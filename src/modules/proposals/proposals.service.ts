@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -42,10 +43,12 @@ export class ProposalsService {
     @InjectRepository(Team) private readonly teams: Repository<Team>,
     private readonly aiEngine: AiEngineService,
     private readonly projects: ProjectsService,
-    private readonly paymentPlans: PaymentPlansService,
-    private readonly config: ConfigService,
     private readonly notifications: NotificationsService,
     private readonly realtime: NotificationGateway,
+    @Optional()
+    private readonly paymentPlans?: PaymentPlansService,
+    @Optional()
+    private readonly config?: ConfigService,
   ) {}
 
   async generateDraft(
@@ -223,7 +226,7 @@ export class ProposalsService {
       const problem = await this.problems.findOneBy({ id: proposal.problemId });
       if (!problem) throw new NotFoundException('Problem not found');
       const financialEnabled =
-        this.config.get<boolean>('FINANCIAL_FEATURE_ENABLED') === true;
+        this.config?.get<boolean>('FINANCIAL_FEATURE_ENABLED') === true;
       const project = await this.projects.createFromAcceptedProposal({
         proposalId: proposal.id,
         problemId: proposal.problemId,
@@ -238,6 +241,8 @@ export class ProposalsService {
         financialSetupRequired: financialEnabled,
       });
       if (financialEnabled) {
+        if (!this.paymentPlans)
+          throw new ConflictException('Payment plan service is unavailable');
         await this.paymentPlans.ensureForAcceptedProject(
           requesterId,
           project.id,

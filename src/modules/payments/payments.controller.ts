@@ -44,6 +44,14 @@ export class PaymentsController {
     );
   }
 
+  @Get()
+  findForProject(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('projectId') projectId: string,
+  ): Promise<ProjectPayment[]> {
+    return this.payments.findForProject(user.userId, projectId);
+  }
+
   @Get(':paymentId')
   findOne(
     @CurrentUser() user: AuthenticatedUser,

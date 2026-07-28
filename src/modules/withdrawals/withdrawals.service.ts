@@ -13,8 +13,8 @@ import {
   LedgerBalanceBucket,
   LedgerEntryDirection,
   LedgerEntryType,
-  NotificationType,
 } from '../../shared';
+import { NotificationType } from '../notifications/entities/notification.entity';
 import { WithdrawalRequest } from './entities/withdrawal-request.entity';
 import { WalletsService } from '../wallets/wallets.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -111,7 +111,7 @@ export class WithdrawalsService {
       type: NotificationType.WITHDRAWAL_REQUESTED,
       title: 'Withdrawal Requested',
       message: `Your withdrawal of ${dto.amount} ${dto.currency} is pending review`,
-      metadata: { withdrawalId: withdrawal.id },
+      href: `/wallet/withdrawals?withdrawal=${withdrawal.id}`,
     });
 
     return this.toDto(withdrawal);
@@ -202,7 +202,7 @@ export class WithdrawalsService {
         type: NotificationType.WITHDRAWAL_APPROVED,
         title: 'Withdrawal Approved',
         message: `Your withdrawal of ${withdrawal.amount} ${withdrawal.currency} has been approved`,
-        metadata: { withdrawalId: withdrawal.id },
+        href: `/wallet/withdrawals?withdrawal=${withdrawal.id}`,
       });
     } else {
       withdrawal.status = WithdrawalStatus.REJECTED;
@@ -231,7 +231,7 @@ export class WithdrawalsService {
         type: NotificationType.WITHDRAWAL_REJECTED,
         title: 'Withdrawal Rejected',
         message: `Your withdrawal request was rejected: ${withdrawal.failureReason}`,
-        metadata: { withdrawalId: withdrawal.id },
+        href: `/wallet/withdrawals?withdrawal=${withdrawal.id}`,
       });
     }
 
@@ -284,7 +284,7 @@ export class WithdrawalsService {
       type: NotificationType.WITHDRAWAL_COMPLETED,
       title: 'Withdrawal Completed',
       message: `Your withdrawal of ${withdrawal.amount} ${withdrawal.currency} has been processed`,
-      metadata: { withdrawalId: withdrawal.id },
+      href: `/wallet/withdrawals?withdrawal=${withdrawal.id}`,
     });
 
     return this.toDto(withdrawal);

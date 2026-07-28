@@ -46,6 +46,7 @@ import { MatchingModule } from './modules/matching/matching.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PaymentPlansModule } from './modules/payment-plans/payment-plans.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { PayoutsModule } from './modules/payouts/payouts.module';
 import { ProblemsModule } from './modules/problems/problems.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { ReputationModule } from './modules/reputation/reputation.module';
@@ -122,6 +123,7 @@ import { WithdrawalsModule } from './modules/withdrawals/withdrawals.module';
     MarketplaceFeesModule,
     PaymentPlansModule,
     PaymentsModule,
+    PayoutsModule,
     ReputationModule,
     AdminModule,
     DisputesModule,

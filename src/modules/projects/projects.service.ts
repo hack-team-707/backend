@@ -116,10 +116,12 @@ export class ProjectsService {
     private readonly users: UsersService,
     private readonly skillCards: SkillCardsService,
     private readonly aiEngine: AiEngineService,
-    private readonly config: ConfigService,
-    private readonly payments: PaymentsService,
     @Optional()
     private readonly room?: ProjectRoomService,
+    @Optional()
+    private readonly config?: ConfigService,
+    @Optional()
+    private readonly payments?: PaymentsService,
   ) {}
 
   async createFromAcceptedProposal(
@@ -665,8 +667,10 @@ export class ProjectsService {
     const accepted = dto.decision === ProjectValidationDecision.ACCEPT;
     if (
       accepted &&
-      this.config.get<boolean>('FINANCIAL_FEATURE_ENABLED') === true
+      this.config?.get<boolean>('FINANCIAL_FEATURE_ENABLED') === true
     ) {
+      if (!this.payments)
+        throw new ConflictException('Payments service is unavailable');
       await this.payments.releaseProjectFunds(projectId, userId);
     }
     this.projects.merge(project, {

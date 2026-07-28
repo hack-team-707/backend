@@ -7,7 +7,12 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { AuthenticatedUser, CurrentUser } from '../../common/auth.decorators';
+import {
+  AuthenticatedUser,
+  CurrentUser,
+  Roles,
+} from '../../common/auth.decorators';
+import { UserRole } from '../../shared';
 import { WalletDto, LedgerEntryDto } from './dto/wallet.dto';
 import { WalletsService } from './wallets.service';
 
@@ -38,11 +43,11 @@ export class WalletsController {
   }
 
   @Get('users/:userId/:currency')
+  @Roles(UserRole.ADMIN)
   async getUserWallet(
     @Param('userId') userId: string,
     @Param('currency') currency: string,
   ): Promise<WalletDto> {
-    // Note: In production, add authorization check here
     return this.wallets.getWalletWithBalance(userId, currency);
   }
 }

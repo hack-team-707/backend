@@ -1,5 +1,6 @@
 import {
   MatchStatus,
+  ProblemStatus,
   ProposalStatus,
   TeamRole,
   TeamStatus,
@@ -310,5 +311,72 @@ describe('ProposalsService team proposal rules', () => {
       'team.leadership.changed',
       expect.objectContaining({ leadSolverId: 'solver-2' }),
     );
+  });
+});
+
+describe('ProposalsService financial activation', () => {
+  it('creates the payment plan and keeps the problem gated when finance is enabled', async () => {
+    const proposal = {
+      id: 'proposal-finance',
+      problemId: 'problem-finance',
+      requesterId: 'requester-1',
+      submittedBy: 'solver-1',
+      solverIds: ['solver-1'],
+      summary: 'Implementación financiera',
+      acceptanceCriteria: ['Entrega validada'],
+      deliverySchedule: [],
+      price: 1000,
+      currency: 'PEN',
+      status: ProposalStatus.SUBMITTED,
+    } as unknown as Proposal;
+    const proposals = {
+      merge: jest.fn((target, source) => Object.assign(target, source)),
+      save: jest.fn(async (value) => value),
+    };
+    const problem = {
+      id: 'problem-finance',
+      status: ProblemStatus.PROPOSAL_SENT,
+    };
+    const problems = {
+      findOneBy: jest.fn().mockResolvedValue(problem),
+      merge: jest.fn((target, source) => Object.assign(target, source)),
+      save: jest.fn(async (value) => value),
+    };
+    const projects = {
+      createFromAcceptedProposal: jest
+        .fn()
+        .mockResolvedValue({ id: 'project-finance' }),
+    };
+    const paymentPlans = {
+      ensureForAcceptedProject: jest.fn().mockResolvedValue({ id: 'plan-1' }),
+    };
+    const config = { get: jest.fn().mockReturnValue(true) };
+    const service = new ProposalsService(
+      proposals as never,
+      problems as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      projects as never,
+      {} as never,
+      {} as never,
+      paymentPlans as never,
+      config as never,
+    );
+    jest.spyOn(service, 'findOne').mockResolvedValue(proposal);
+
+    const result = await service.respond('requester-1', proposal.id, {
+      status: ProposalStatus.ACCEPTED,
+    });
+
+    expect(projects.createFromAcceptedProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ financialSetupRequired: true }),
+    );
+    expect(paymentPlans.ensureForAcceptedProject).toHaveBeenCalledWith(
+      'requester-1',
+      'project-finance',
+    );
+    expect(problem.status).toBe(ProblemStatus.PROPOSAL_SENT);
+    expect(result.status).toBe(ProposalStatus.ACCEPTED);
   });
 });

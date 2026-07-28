@@ -65,6 +65,7 @@ export class PaymentPlansService {
           status: In([
             PaymentPlanStatus.PENDING_ACCEPTANCE,
             PaymentPlanStatus.ACTIVE,
+            PaymentPlanStatus.COMPLETED,
           ]),
         },
         order: { version: 'DESC' },

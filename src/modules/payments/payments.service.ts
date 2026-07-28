@@ -13,12 +13,18 @@ import { Queue } from 'bull';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
   addMoney,
+  allocateByBasisPoints,
   compareMoney,
   formatMoney,
+  multiplyByBasisPoints,
   parseMoney,
   subtractMoney,
 } from '../../common/money';
 import {
+  LedgerBalanceBucket,
+  LedgerEntryDirection,
+  LedgerEntryType,
+  PaymentDistributionType,
   PaymentInstallmentStatus,
   PaymentPlanStatus,
   PaymentProvider as PaymentProviderKind,
@@ -26,16 +32,22 @@ import {
   PaymentStatus,
   PaymentWebhookStatus,
   UserRole,
+  WalletStatus,
 } from '../../shared';
+import { MarketplaceFeeConfig } from '../marketplace-fees/entities/marketplace-fee-config.entity';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentPlanInstallment } from '../payment-plans/entities/payment-plan-installment.entity';
 import { ProjectPaymentPlan } from '../payment-plans/entities/project-payment-plan.entity';
+import { ProjectParticipantShare } from '../payment-plans/entities/project-participant-share.entity';
 import { Project } from '../projects/entities/project.entity';
 import { CreateCheckoutDto, CreateRefundDto } from './dto/payment.dto';
 import { PaymentRefund } from './entities/payment-refund.entity';
+import { PaymentDistribution } from './entities/payment-distribution.entity';
 import { PaymentWebhookEvent } from './entities/payment-webhook-event.entity';
 import { ProjectPayment } from './entities/project-payment.entity';
+import { WalletLedgerEntry } from '../wallets/entities/wallet-ledger-entry.entity';
+import { Wallet } from '../wallets/entities/wallet.entity';
 import {
   PAYMENT_PROVIDER,
   PaymentProvider,
@@ -218,6 +230,26 @@ export class PaymentsService {
     return payment;
   }
 
+  async findForProject(
+    userId: string,
+    projectId: string,
+  ): Promise<ProjectPayment[]> {
+    const project = await this.dataSource
+      .getRepository(Project)
+      .findOneBy({ id: projectId });
+    if (!project) throw new NotFoundException('Project not found');
+    if (!project.participantIds.includes(userId))
+      throw new ForbiddenException('User is not a project participant');
+    const plans = await this.dataSource
+      .getRepository(ProjectPaymentPlan)
+      .find({ where: { projectId } });
+    if (!plans.length) return [];
+    return this.dataSource.getRepository(ProjectPayment).find({
+      where: { paymentPlanId: In(plans.map((plan) => plan.id)) },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async receiveMercadoPagoWebhook(input: {
     dataId: string;
     requestId: string;
@@ -378,6 +410,7 @@ export class PaymentsService {
           installment.status = PaymentInstallmentStatus.PAID;
           installment.paidAt = payment.paidAt;
         }
+        await this.distributeSuccessfulPayment(manager, payment, plan);
       } else if (firstRefund) {
         plan.fundedAmount = formatMoney(
           subtractMoney(
@@ -457,6 +490,16 @@ export class PaymentsService {
         if (payment.status !== PaymentStatus.SUCCEEDED)
           throw new ConflictException(
             'Only succeeded payments can be refunded',
+          );
+        const paymentPlan = await manager
+          .getRepository(ProjectPaymentPlan)
+          .findOneBy({ id: payment.paymentPlanId });
+        if (
+          paymentPlan &&
+          compareMoney(parseMoney(paymentPlan.releasedAmount), 0n) > 0
+        )
+          throw new ConflictException(
+            'Released project funds cannot be refunded automatically',
           );
         const activeRefund = await manager
           .getRepository(PaymentRefund)
@@ -572,6 +615,36 @@ export class PaymentsService {
       subtractMoney(parseMoney(plan.fundedAmount), parseMoney(payment.amount)),
     );
     plan.updatedAt = new Date();
+    const distributions = await manager
+      .getRepository(PaymentDistribution)
+      .find({
+        where: {
+          paymentId: payment.id,
+          type: PaymentDistributionType.PARTICIPANT_SHARE,
+        },
+      });
+    for (const distribution of distributions) {
+      if (!distribution.recipientUserId || !distribution.walletId) continue;
+      const exists = await manager.getRepository(WalletLedgerEntry).findOneBy({
+        idempotencyKey: `payment:${payment.id}:distribution:${distribution.id}:refund`,
+      });
+      if (!exists) {
+        await manager.getRepository(WalletLedgerEntry).save({
+          id: randomUUID(),
+          walletId: distribution.walletId,
+          paymentDistributionId: distribution.id,
+          bucket: LedgerBalanceBucket.HELD,
+          direction: LedgerEntryDirection.DEBIT,
+          type: LedgerEntryType.PAYMENT_REVERSAL,
+          amount: distribution.amount,
+          currency: distribution.currency,
+          idempotencyKey: `payment:${payment.id}:distribution:${distribution.id}:refund`,
+          description: 'Reversión por reembolso de pago',
+          metadata: { paymentId: payment.id },
+          createdAt: new Date(),
+        });
+      }
+    }
     if (payment.installmentId) {
       const installment = await manager
         .getRepository(PaymentPlanInstallment)
@@ -602,6 +675,236 @@ export class PaymentsService {
       case PaymentStatus.PENDING:
       case PaymentStatus.PROCESSING:
         return PaymentInstallmentStatus.PROCESSING;
+    }
+  }
+
+  async releaseProjectFunds(
+    projectId: string,
+    requesterId: string,
+  ): Promise<ProjectPaymentPlan | null> {
+    if (this.config.get<boolean>('FINANCIAL_FEATURE_ENABLED') !== true)
+      return null;
+    const result = await this.dataSource.transaction(
+      'SERIALIZABLE',
+      async (manager) => {
+        await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+          `payment-release:${projectId}`,
+        ]);
+        const project = await manager.getRepository(Project).findOne({
+          where: { id: projectId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!project) throw new NotFoundException('Project not found');
+        if (project.requesterId !== requesterId)
+          throw new ForbiddenException(
+            'Only the project requester can release funds',
+          );
+        const plan = await manager.getRepository(ProjectPaymentPlan).findOne({
+          where: {
+            projectId,
+            status: In([PaymentPlanStatus.ACTIVE, PaymentPlanStatus.COMPLETED]),
+          },
+          order: { version: 'DESC' },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!plan)
+          throw new ConflictException('Project has no active payment plan');
+        if (
+          compareMoney(
+            parseMoney(plan.fundedAmount),
+            parseMoney(plan.totalAmount),
+          ) !== 0
+        )
+          throw new ConflictException(
+            'The payment plan must be fully funded before closing the project',
+          );
+        if (
+          compareMoney(
+            parseMoney(plan.releasedAmount),
+            parseMoney(plan.totalAmount),
+          ) === 0
+        )
+          return { plan, project, released: false };
+        const installments = await manager
+          .getRepository(PaymentPlanInstallment)
+          .find({ where: { paymentPlanId: plan.id } });
+        if (
+          installments.some(
+            (item) => item.status !== PaymentInstallmentStatus.PAID,
+          )
+        )
+          throw new ConflictException(
+            'Every payment installment must be paid before closing the project',
+          );
+        const payments = await manager.getRepository(ProjectPayment).find({
+          where: {
+            paymentPlanId: plan.id,
+            status: PaymentStatus.SUCCEEDED,
+          },
+        });
+        const distributions = payments.length
+          ? await manager.getRepository(PaymentDistribution).find({
+              where: {
+                paymentId: In(payments.map((payment) => payment.id)),
+                type: PaymentDistributionType.PARTICIPANT_SHARE,
+              },
+            })
+          : [];
+        for (const distribution of distributions) {
+          if (!distribution.walletId || !distribution.recipientUserId) continue;
+          const releaseKey = `distribution:${distribution.id}:release`;
+          const releasedEntry = await manager
+            .getRepository(WalletLedgerEntry)
+            .findOneBy({ idempotencyKey: `${releaseKey}:credit` });
+          if (releasedEntry) continue;
+          await manager.getRepository(WalletLedgerEntry).save([
+            {
+              id: randomUUID(),
+              walletId: distribution.walletId,
+              paymentDistributionId: distribution.id,
+              bucket: LedgerBalanceBucket.HELD,
+              direction: LedgerEntryDirection.DEBIT,
+              type: LedgerEntryType.PAYMENT_DISTRIBUTION,
+              amount: distribution.amount,
+              currency: distribution.currency,
+              idempotencyKey: `${releaseKey}:debit`,
+              description: 'Fondos liberados tras validar la entrega',
+              metadata: { projectId, paymentId: distribution.paymentId },
+              createdAt: new Date(),
+            },
+            {
+              id: randomUUID(),
+              walletId: distribution.walletId,
+              paymentDistributionId: distribution.id,
+              bucket: LedgerBalanceBucket.AVAILABLE,
+              direction: LedgerEntryDirection.CREDIT,
+              type: LedgerEntryType.PAYMENT_DISTRIBUTION,
+              amount: distribution.amount,
+              currency: distribution.currency,
+              idempotencyKey: `${releaseKey}:credit`,
+              description: 'Fondos disponibles por entrega validada',
+              metadata: { projectId, paymentId: distribution.paymentId },
+              createdAt: new Date(),
+            },
+          ]);
+        }
+        plan.releasedAmount = plan.totalAmount;
+        plan.status = PaymentPlanStatus.COMPLETED;
+        plan.completedAt = new Date();
+        plan.updatedAt = new Date();
+        await manager.getRepository(ProjectPaymentPlan).save(plan);
+        return { plan, project, released: true };
+      },
+    );
+    if (result.released) {
+      await this.notifications.createForUsersSafely(result.project.solverIds, {
+        type: NotificationType.FUNDS_RELEASED,
+        title: 'Fondos liberados',
+        message:
+          'La entrega fue validada y los fondos ya están disponibles en tu billetera.',
+        href: '/wallet',
+      });
+    }
+    return result.plan;
+  }
+
+  private async distributeSuccessfulPayment(
+    manager: EntityManager,
+    payment: ProjectPayment,
+    plan: ProjectPaymentPlan,
+  ): Promise<void> {
+    const existing = await manager
+      .getRepository(PaymentDistribution)
+      .countBy({ paymentId: payment.id });
+    if (existing > 0) return;
+    const [shares, feeConfig] = await Promise.all([
+      manager.getRepository(ProjectParticipantShare).find({
+        where: { paymentPlanId: plan.id },
+        order: { userId: 'ASC' },
+      }),
+      manager
+        .getRepository(MarketplaceFeeConfig)
+        .findOneBy({ id: plan.feeConfigId }),
+    ]);
+    if (!shares.length)
+      throw new ConflictException('Payment plan has no participant shares');
+    if (!feeConfig)
+      throw new ConflictException('Payment plan fee configuration is missing');
+    const gross = parseMoney(payment.amount);
+    const proportionalFee = multiplyByBasisPoints(
+      gross,
+      feeConfig.feeBasisPoints,
+    );
+    const configuredFixedFee = parseMoney(feeConfig.fixedFeeAmount);
+    const fee =
+      proportionalFee + configuredFixedFee < gross
+        ? proportionalFee + configuredFixedFee
+        : proportionalFee;
+    const net = subtractMoney(gross, fee);
+    const allocations = allocateByBasisPoints(
+      net,
+      shares.map((share) => share.shareBasisPoints),
+    );
+    const now = new Date();
+    if (fee > 0n) {
+      await manager.getRepository(PaymentDistribution).save({
+        id: randomUUID(),
+        paymentId: payment.id,
+        participantShareId: null,
+        recipientUserId: null,
+        walletId: null,
+        type: PaymentDistributionType.MARKETPLACE_FEE,
+        amount: formatMoney(fee),
+        currency: payment.currency,
+        idempotencyKey: `payment:${payment.id}:marketplace-fee`,
+        createdAt: now,
+      });
+    }
+    for (const [index, share] of shares.entries()) {
+      let wallet = await manager.getRepository(Wallet).findOneBy({
+        userId: share.userId,
+        currency: payment.currency,
+      });
+      if (!wallet) {
+        wallet = await manager.getRepository(Wallet).save(
+          manager.getRepository(Wallet).create({
+            id: randomUUID(),
+            userId: share.userId,
+            currency: payment.currency,
+            status: WalletStatus.ACTIVE,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        );
+      }
+      const distribution = await manager
+        .getRepository(PaymentDistribution)
+        .save({
+          id: randomUUID(),
+          paymentId: payment.id,
+          participantShareId: share.id,
+          recipientUserId: share.userId,
+          walletId: wallet.id,
+          type: PaymentDistributionType.PARTICIPANT_SHARE,
+          amount: formatMoney(allocations[index]),
+          currency: payment.currency,
+          idempotencyKey: `payment:${payment.id}:share:${share.id}`,
+          createdAt: now,
+        });
+      await manager.getRepository(WalletLedgerEntry).save({
+        id: randomUUID(),
+        walletId: wallet.id,
+        paymentDistributionId: distribution.id,
+        bucket: LedgerBalanceBucket.HELD,
+        direction: LedgerEntryDirection.CREDIT,
+        type: LedgerEntryType.PAYMENT_DISTRIBUTION,
+        amount: distribution.amount,
+        currency: distribution.currency,
+        idempotencyKey: `payment:${payment.id}:share:${share.id}:held`,
+        description: 'Pago retenido hasta la validación de la entrega',
+        metadata: { paymentId: payment.id, paymentPlanId: plan.id },
+        createdAt: now,
+      });
     }
   }
 

@@ -4,6 +4,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentPlanInstallment } from '../payment-plans/entities/payment-plan-installment.entity';
 import { ProjectPaymentPlan } from '../payment-plans/entities/project-payment-plan.entity';
+import { ProjectParticipantShare } from '../payment-plans/entities/project-participant-share.entity';
+import { MarketplaceFeeConfig } from '../marketplace-fees/entities/marketplace-fee-config.entity';
+import { Wallet } from '../wallets/entities/wallet.entity';
+import { WalletLedgerEntry } from '../wallets/entities/wallet-ledger-entry.entity';
+import { PaymentDistribution } from './entities/payment-distribution.entity';
 import { Project } from '../projects/entities/project.entity';
 import { PaymentRefund } from './entities/payment-refund.entity';
 import { PaymentWebhookEvent } from './entities/payment-webhook-event.entity';
@@ -25,8 +30,13 @@ import { PAYMENT_PROVIDER } from './providers/payment-provider';
     TypeOrmModule.forFeature([
       Project,
       ProjectPaymentPlan,
+      ProjectParticipantShare,
+      MarketplaceFeeConfig,
       PaymentPlanInstallment,
       ProjectPayment,
+      PaymentDistribution,
+      Wallet,
+      WalletLedgerEntry,
       PaymentWebhookEvent,
       PaymentRefund,
     ]),
