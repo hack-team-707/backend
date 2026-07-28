@@ -4,6 +4,7 @@ import { AiEngineModule } from '../ai-engine/ai-engine.module';
 import { Evidence } from '../evidence/entities/evidence.entity';
 import { Problem } from '../problems/entities/problem.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { PaymentsModule } from '../payments/payments.module';
 import { SkillCardsModule } from '../skill-cards/skill-cards.module';
 import { UsersModule } from '../users/users.module';
 import { ProjectActivity } from './entities/project-activity.entity';
@@ -28,6 +29,7 @@ import { ProjectsService } from './projects.service';
 @Module({
   imports: [
     NotificationsModule,
+    PaymentsModule,
     AiEngineModule,
     SkillCardsModule,
     UsersModule,

@@ -21,12 +21,15 @@ import {
 } from '../../common/money';
 import {
   ParticipantShareAcceptanceStatus,
+  JobStatus,
   PaymentInstallmentStatus,
   PaymentPlanStatus,
+  ProblemStatus,
 } from '../../shared';
 import { MarketplaceFeeConfig } from '../marketplace-fees/entities/marketplace-fee-config.entity';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { Problem } from '../problems/entities/problem.entity';
 import { Project } from '../projects/entities/project.entity';
 import {
   AcceptPaymentPlanShareDto,
@@ -72,6 +75,59 @@ export class PaymentPlansService {
           'Expected exactly one current payment plan',
         );
       return this.view(manager, plans[0]);
+    });
+  }
+
+  async ensureForAcceptedProject(
+    requesterId: string,
+    projectId: string,
+  ): Promise<PaymentPlanView> {
+    const existing = await this.dataSource
+      .getRepository(ProjectPaymentPlan)
+      .findOne({
+        where: {
+          projectId,
+          status: In([
+            PaymentPlanStatus.PENDING_ACCEPTANCE,
+            PaymentPlanStatus.ACTIVE,
+          ]),
+        },
+        order: { version: 'DESC' },
+      });
+    if (existing) return this.view(this.dataSource.manager, existing);
+
+    const project = await this.dataSource
+      .getRepository(Project)
+      .findOneBy({ id: projectId });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.requesterId !== requesterId)
+      throw new ForbiddenException(
+        'Only the project requester can initialize its payment plan',
+      );
+    const solverIds = [...new Set(project.solverIds)].sort();
+    if (!solverIds.length)
+      throw new ConflictException(
+        'The project requires at least one solver share',
+      );
+    const shares = this.defaultShares(project, solverIds);
+    const lastDueDate = project.deliverySchedule
+      .map((item) => new Date(item.dueDate))
+      .filter((date) => !Number.isNaN(date.getTime()))
+      .sort((left, right) => right.getTime() - left.getTime())[0];
+    const dueAt =
+      lastDueDate && lastDueDate > new Date()
+        ? lastDueDate
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    return this.create(requesterId, projectId, {
+      confirmed: true,
+      installments: [
+        {
+          allocationBasisPoints: 10_000,
+          description: 'Pago total acordado para el proyecto',
+          dueAt: dueAt.toISOString(),
+        },
+      ],
+      shares,
     });
   }
 
@@ -213,7 +269,7 @@ export class PaymentPlansService {
       title: 'Plan de pagos por aceptar',
       message:
         'Revisa y acepta tu participación en el plan de pagos del proyecto.',
-      href: `/projects/${projectId}`,
+      href: `/projects/${projectId}/payments`,
     });
     return result.view;
   }
@@ -279,6 +335,15 @@ export class PaymentPlansService {
         ) {
           plan.status = PaymentPlanStatus.ACTIVE;
           plan.activatedAt = now;
+          if (project.status === JobStatus.PENDING_PAYMENT_PLAN) {
+            project.status = JobStatus.ACTIVE;
+            project.updatedAt = now.toISOString();
+            await manager.getRepository(Project).save(project);
+            await manager.getRepository(Problem).update(project.problemId, {
+              status: ProblemStatus.IN_EXECUTION,
+              updatedAt: now.toISOString(),
+            });
+          }
         }
         plan.updatedAt = now;
         await manager.getRepository(ProjectPaymentPlan).save(plan);
@@ -304,7 +369,7 @@ export class PaymentPlansService {
           : result.view.status === PaymentPlanStatus.ACTIVE
             ? 'Todos los solucionadores aceptaron el plan de pagos.'
             : 'Un solucionador aceptó su participación en el plan de pagos.',
-        href: `/projects/${projectId}`,
+        href: `/projects/${projectId}/payments`,
       },
       userId,
     );
@@ -340,6 +405,30 @@ export class PaymentPlansService {
         'Shares must match the current project solvers exactly',
       );
     }
+  }
+
+  private defaultShares(
+    project: Project,
+    solverIds: string[],
+  ): Array<{ userId: string; shareBasisPoints: number }> {
+    const configured = solverIds.map((userId) =>
+      Math.round(Number(project.memberShares?.[userId] ?? 0) * 100),
+    );
+    const configuredTotal = configured.reduce(
+      (total, value) => total + value,
+      0,
+    );
+    const basisPoints =
+      configured.every((value) => value > 0) && configuredTotal === 10_000
+        ? configured
+        : solverIds.map((_, index) => {
+            const base = Math.floor(10_000 / solverIds.length);
+            return base + (index < 10_000 % solverIds.length ? 1 : 0);
+          });
+    return solverIds.map((userId, index) => ({
+      userId,
+      shareBasisPoints: basisPoints[index],
+    }));
   }
 
   private async currentFee(

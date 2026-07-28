@@ -80,6 +80,7 @@ export enum DisputeStatus {
 }
 
 export enum JobStatus {
+  PENDING_PAYMENT_PLAN = 'pending_payment_plan',
   ACTIVE = 'active',
   PENDING_VALIDATION = 'pending_validation',
   CLOSED = 'closed',

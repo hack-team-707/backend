@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
@@ -23,6 +24,7 @@ import { Problem } from '../problems/entities/problem.entity';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { NotificationGateway } from '../notifications/notification.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PaymentsService } from '../payments/payments.service';
 import { SkillCardsService } from '../skill-cards/skill-cards.service';
 import { UsersService } from '../users/users.service';
 import {
@@ -51,6 +53,7 @@ export interface AcceptedProposalProjectInput {
   deliverySchedule: ProposalScheduledDeliverable[];
   price: number;
   currency: string;
+  financialSetupRequired?: boolean;
 }
 
 export interface ProjectParticipantDetails {
@@ -113,6 +116,8 @@ export class ProjectsService {
     private readonly users: UsersService,
     private readonly skillCards: SkillCardsService,
     private readonly aiEngine: AiEngineService,
+    private readonly config: ConfigService,
+    private readonly payments: PaymentsService,
     @Optional()
     private readonly room?: ProjectRoomService,
   ) {}
@@ -147,7 +152,9 @@ export class ProjectsService {
           totalPrice: input.price,
           currency: input.currency,
           memberShares: { [input.leadSolverId]: 100 },
-          status: JobStatus.ACTIVE,
+          status: input.financialSetupRequired
+            ? JobStatus.PENDING_PAYMENT_PLAN
+            : JobStatus.ACTIVE,
           completionEvidenceIds: [],
           createdAt: now,
           updatedAt: now,
@@ -165,10 +172,16 @@ export class ProjectsService {
     await this.notifications.createForUsersSafely(
       project.participantIds,
       {
-        type: NotificationType.PROJECT_STARTED,
-        title: 'Proyecto iniciado',
-        message: `El proyecto “${project.title}” ya está activo.`,
-        href: `/projects/${project.id}`,
+        type: input.financialSetupRequired
+          ? NotificationType.PAYMENT_PLAN_ACCEPTANCE_REQUIRED
+          : NotificationType.PROJECT_STARTED,
+        title: input.financialSetupRequired
+          ? 'Proyecto pendiente de acuerdo financiero'
+          : 'Proyecto iniciado',
+        message: input.financialSetupRequired
+          ? `El proyecto “${project.title}” se activará cuando el equipo acepte el plan de pagos.`
+          : `El proyecto “${project.title}” ya está activo.`,
+        href: `/projects/${project.id}${input.financialSetupRequired ? '/payments' : ''}`,
       },
       input.requesterId,
     );
@@ -650,6 +663,12 @@ export class ProjectsService {
     if (!problem) throw new NotFoundException('Problem not found');
     const now = new Date().toISOString();
     const accepted = dto.decision === ProjectValidationDecision.ACCEPT;
+    if (
+      accepted &&
+      this.config.get<boolean>('FINANCIAL_FEATURE_ENABLED') === true
+    ) {
+      await this.payments.releaseProjectFunds(projectId, userId);
+    }
     this.projects.merge(project, {
       status: accepted ? JobStatus.CLOSED : JobStatus.ACTIVE,
       validationNote: dto.note.trim(),

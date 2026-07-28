@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { In, Repository } from 'typeorm';
@@ -20,6 +21,7 @@ import { Problem } from '../problems/entities/problem.entity';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { NotificationGateway } from '../notifications/notification.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PaymentPlansService } from '../payment-plans/payment-plans.service';
 import { ProjectsService } from '../projects/projects.service';
 import { Team } from '../team-formation/entities/team.entity';
 import {
@@ -40,6 +42,8 @@ export class ProposalsService {
     @InjectRepository(Team) private readonly teams: Repository<Team>,
     private readonly aiEngine: AiEngineService,
     private readonly projects: ProjectsService,
+    private readonly paymentPlans: PaymentPlansService,
+    private readonly config: ConfigService,
     private readonly notifications: NotificationsService,
     private readonly realtime: NotificationGateway,
   ) {}
@@ -218,7 +222,9 @@ export class ProposalsService {
         throw new ConflictException('Proposal cannot be accepted');
       const problem = await this.problems.findOneBy({ id: proposal.problemId });
       if (!problem) throw new NotFoundException('Problem not found');
-      await this.projects.createFromAcceptedProposal({
+      const financialEnabled =
+        this.config.get<boolean>('FINANCIAL_FEATURE_ENABLED') === true;
+      const project = await this.projects.createFromAcceptedProposal({
         proposalId: proposal.id,
         problemId: proposal.problemId,
         requesterId,
@@ -229,7 +235,14 @@ export class ProposalsService {
         deliverySchedule: proposal.deliverySchedule,
         price: proposal.price,
         currency: proposal.currency,
+        financialSetupRequired: financialEnabled,
       });
+      if (financialEnabled) {
+        await this.paymentPlans.ensureForAcceptedProject(
+          requesterId,
+          project.id,
+        );
+      }
       const now = new Date().toISOString();
       this.proposals.merge(proposal, {
         status: ProposalStatus.ACCEPTED,
@@ -238,7 +251,9 @@ export class ProposalsService {
       });
       const saved = await this.proposals.save(proposal);
       this.problems.merge(problem, {
-        status: ProblemStatus.IN_EXECUTION,
+        status: financialEnabled
+          ? ProblemStatus.PROPOSAL_SENT
+          : ProblemStatus.IN_EXECUTION,
         updatedAt: now,
       });
       await this.problems.save(problem);

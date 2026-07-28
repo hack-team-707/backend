@@ -22,6 +22,12 @@ export enum NotificationType {
   PAYMENT_APPROVED = 'payment_approved',
   PAYMENT_FAILED = 'payment_failed',
   PAYMENT_REFUNDED = 'payment_refunded',
+  FUNDS_RELEASED = 'funds_released',
+  WITHDRAWAL_REQUESTED = 'withdrawal_requested',
+  WITHDRAWAL_APPROVED = 'withdrawal_approved',
+  WITHDRAWAL_REJECTED = 'withdrawal_rejected',
+  WITHDRAWAL_COMPLETED = 'withdrawal_completed',
+  PAYOUT_COMPLETED = 'payout_completed',
   DISPUTE_OPENED = 'dispute_opened',
   DISPUTE_UPDATED = 'dispute_updated',
 }
