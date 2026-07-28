@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MarketplaceFeeConfig } from '../marketplace-fees/entities/marketplace-fee-config.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { Proposal } from '../proposals/entities/proposal.entity';
 import { Project } from '../projects/entities/project.entity';
 import { Problem } from '../problems/entities/problem.entity';
 import { PaymentPlanInstallment } from './entities/payment-plan-installment.entity';
@@ -20,6 +21,7 @@ import { PaymentPlansService } from './payment-plans.service';
       ProjectPaymentPlan,
       PaymentPlanInstallment,
       ProjectParticipantShare,
+      Proposal,
     ]),
   ],
   controllers: [PaymentPlansController],

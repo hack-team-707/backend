@@ -25,6 +25,7 @@ import { NotificationType } from '../notifications/entities/notification.entity'
 import { NotificationGateway } from '../notifications/notification.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentsService } from '../payments/payments.service';
+import { Proposal } from '../proposals/entities/proposal.entity';
 import { SkillCardsService } from '../skill-cards/skill-cards.service';
 import { UsersService } from '../users/users.service';
 import {
@@ -122,6 +123,9 @@ export class ProjectsService {
     private readonly config?: ConfigService,
     @Optional()
     private readonly payments?: PaymentsService,
+    @Optional()
+    @InjectRepository(Proposal)
+    private readonly proposals?: Repository<Proposal>,
   ) {}
 
   async createFromAcceptedProposal(
@@ -710,6 +714,7 @@ export class ProjectsService {
     project: Project,
     currentUserId: string,
   ): Promise<ProjectWithParticipants> {
+    await this.restoreLegacyBudget(project);
     const users = await this.users.findPublicByIds(project.participantIds);
     const usersById = new Map(users.map((user) => [user.id, user]));
     return Object.assign(project, {
@@ -736,6 +741,27 @@ export class ProjectsService {
         };
       }),
     });
+  }
+
+  private async restoreLegacyBudget(project: Project): Promise<void> {
+    if (
+      Number(project.totalPrice ?? 0) > 0 &&
+      /^[A-Z]{3}$/.test(project.currency ?? '')
+    )
+      return;
+    const proposal = await this.proposals?.findOneBy({
+      id: project.proposalId,
+    });
+    if (
+      !proposal ||
+      Number(proposal.price) <= 0 ||
+      !/^[A-Z]{3}$/.test(proposal.currency?.toUpperCase() ?? '')
+    )
+      return;
+    project.totalPrice = Number(proposal.price);
+    project.currency = proposal.currency.toUpperCase();
+    project.updatedAt = new Date().toISOString();
+    await this.projects.save(project);
   }
 
   private async leadingSolver(

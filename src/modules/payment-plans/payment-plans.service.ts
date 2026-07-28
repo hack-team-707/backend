@@ -30,6 +30,7 @@ import { MarketplaceFeeConfig } from '../marketplace-fees/entities/marketplace-f
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Problem } from '../problems/entities/problem.entity';
+import { Proposal } from '../proposals/entities/proposal.entity';
 import { Project } from '../projects/entities/project.entity';
 import {
   AcceptPaymentPlanShareDto,
@@ -148,6 +149,7 @@ export class PaymentPlansService {
           lock: { mode: 'pessimistic_write' },
         });
         if (!project) throw new NotFoundException('Project not found');
+        await this.restoreLegacyBudget(manager, project);
         const leadId = project.leadSolverId ?? project.solverIds[0];
         if (userId !== project.requesterId && userId !== leadId)
           throw new ForbiddenException(
@@ -453,6 +455,32 @@ export class PaymentPlansService {
         'Exactly one current fee configuration is required',
       );
     return configs[0];
+  }
+
+  private async restoreLegacyBudget(
+    manager: EntityManager,
+    project: Project,
+  ): Promise<void> {
+    if (
+      Number(project.totalPrice ?? 0) > 0 &&
+      /^[A-Z]{3}$/.test(project.currency ?? '')
+    )
+      return;
+    const proposal = await manager
+      .getRepository(Proposal)
+      .findOneBy({ id: project.proposalId });
+    if (
+      !proposal ||
+      Number(proposal.price) <= 0 ||
+      !/^[A-Z]{3}$/.test(proposal.currency?.toUpperCase() ?? '')
+    )
+      throw new ConflictException(
+        'The accepted proposal must define a valid project price and currency',
+      );
+    project.totalPrice = Number(proposal.price);
+    project.currency = proposal.currency.toUpperCase();
+    project.updatedAt = new Date().toISOString();
+    await manager.getRepository(Project).save(project);
   }
 
   private async view(
