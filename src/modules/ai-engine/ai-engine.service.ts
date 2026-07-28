@@ -130,6 +130,7 @@ export class AiEngineService {
           `Capacidades del equipo actual: ${JSON.stringify(teamSkills)}`,
           `Candidatos: ${JSON.stringify(candidates)}`,
         ].join('\n'),
+        { complex: true },
       );
       const value = parseJsonObject(raw);
       const coveredSkills = Array.isArray(value.coveredSkills)
@@ -276,6 +277,7 @@ export class AiEngineService {
             ? [`Borrador actual que debes ajustar: ${input.currentDraft}`]
             : []),
         ].join('\n'),
+        { complex: true },
       );
       return this.parseProposalDraft(parseJsonObject(raw), fallback);
     } catch (error) {
@@ -874,6 +876,7 @@ export class AiEngineService {
           })),
         )}`,
       ].join('\n'),
+      { complex: true },
     );
     const value = parseJsonObject(raw);
     const levels = Object.values(ProficiencyLevel) as string[];
