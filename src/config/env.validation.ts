@@ -63,6 +63,8 @@ interface Environment {
   GOOGLE_PLACES_DEFAULT_RADIUS_METERS: number;
   GOOGLE_PLACES_TIMEOUT_MS: number;
   FINANCIAL_FEATURE_ENABLED: boolean;
+  MARKETPLACE_DEFAULT_FEE_BASIS_POINTS: number;
+  MARKETPLACE_DEFAULT_FIXED_FEE_AMOUNT: string;
   MERCADO_PAGO_ACCESS_TOKEN?: string;
   MERCADO_PAGO_WEBHOOK_SECRET?: string;
   MERCADO_PAGO_BASE_URL: string;
@@ -178,6 +180,11 @@ export function validateEnvironment(
     raw.MERCADO_PAGO_NOTIFICATION_URL,
   );
   const mercadoPagoBackUrls = optionalString(raw.MERCADO_PAGO_BACK_URLS);
+  const marketplaceDefaultFeeBasisPoints = Number(
+    raw.MARKETPLACE_DEFAULT_FEE_BASIS_POINTS ?? 0,
+  );
+  const marketplaceDefaultFixedFeeAmount =
+    optionalString(raw.MARKETPLACE_DEFAULT_FIXED_FEE_AMOUNT) ?? '0';
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('PORT must be an integer between 1 and 65535');
@@ -365,6 +372,18 @@ export function validateEnvironment(
       'MERCADO_PAGO_WEBHOOK_TOLERANCE_SECONDS must be between 1 and 3600',
     );
   }
+  if (
+    !Number.isInteger(marketplaceDefaultFeeBasisPoints) ||
+    marketplaceDefaultFeeBasisPoints < 0 ||
+    marketplaceDefaultFeeBasisPoints > 10_000
+  )
+    throw new Error(
+      'MARKETPLACE_DEFAULT_FEE_BASIS_POINTS must be between 0 and 10000',
+    );
+  if (!/^\d+(?:\.\d{1,4})?$/.test(marketplaceDefaultFixedFeeAmount))
+    throw new Error(
+      'MARKETPLACE_DEFAULT_FIXED_FEE_AMOUNT must be a non-negative amount with up to 4 decimals',
+    );
   const validFinancialUrl = (value: string): boolean => {
     try {
       const url = new URL(value);
@@ -402,16 +421,17 @@ export function validateEnvironment(
       throw new Error(
         'MERCADO_PAGO_WEBHOOK_SECRET is required when FINANCIAL_FEATURE_ENABLED=true',
       );
-    if (!optionalString(raw.REDIS_URL))
+    if (nodeEnv === 'production' && !optionalString(raw.REDIS_URL))
       throw new Error(
-        'REDIS_URL is required when FINANCIAL_FEATURE_ENABLED=true',
+        'REDIS_URL is required when FINANCIAL_FEATURE_ENABLED=true in production',
       );
     if (
-      !mercadoPagoNotificationUrl ||
-      !validFinancialUrl(mercadoPagoNotificationUrl)
+      nodeEnv === 'production' &&
+      (!mercadoPagoNotificationUrl ||
+        !validFinancialUrl(mercadoPagoNotificationUrl))
     )
       throw new Error(
-        'MERCADO_PAGO_NOTIFICATION_URL must be HTTPS (localhost HTTP is allowed in development)',
+        'MERCADO_PAGO_NOTIFICATION_URL must be configured with a valid HTTPS URL in production',
       );
     if (
       !parsedBackUrls ||
@@ -445,6 +465,8 @@ export function validateEnvironment(
     AUTH_RATE_LIMIT_MAX: authRateLimitMax,
     RATE_LIMIT_WINDOW_SECONDS: rateLimitWindowSeconds,
     FINANCIAL_FEATURE_ENABLED: financialFeatureEnabled,
+    MARKETPLACE_DEFAULT_FEE_BASIS_POINTS: marketplaceDefaultFeeBasisPoints,
+    MARKETPLACE_DEFAULT_FIXED_FEE_AMOUNT: marketplaceDefaultFixedFeeAmount,
     ...(mercadoPagoAccessToken
       ? { MERCADO_PAGO_ACCESS_TOKEN: mercadoPagoAccessToken }
       : {}),

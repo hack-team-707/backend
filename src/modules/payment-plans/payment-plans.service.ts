@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import {
   DataSource,
@@ -51,6 +52,7 @@ export class PaymentPlansService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
   ) {}
 
   async current(userId: string, projectId: string): Promise<PaymentPlanView> {
@@ -199,7 +201,7 @@ export class PaymentPlansService {
         }
         if (currentPlans.length) await planRepository.save(currentPlans);
 
-        const feeConfig = await this.currentFee(manager, currency, now);
+        const feeConfig = await this.currentFee(manager, currency, now, userId);
         const plan = await planRepository.save(
           planRepository.create({
             id: randomUUID(),
@@ -438,23 +440,68 @@ export class PaymentPlansService {
     manager: EntityManager,
     currency: string,
     at: Date,
+    createdBy: string,
   ): Promise<MarketplaceFeeConfig> {
-    const configs = await manager.getRepository(MarketplaceFeeConfig).find({
-      where: [
-        {
-          currency,
-          effectiveFrom: LessThanOrEqual(at),
-          effectiveTo: MoreThan(at),
-        },
-        { currency, effectiveFrom: LessThanOrEqual(at), effectiveTo: IsNull() },
-      ],
-      lock: { mode: 'pessimistic_read' },
-    });
-    if (configs.length !== 1)
+    const repository = manager.getRepository(MarketplaceFeeConfig);
+    const findCurrent = () =>
+      repository.find({
+        where: [
+          {
+            currency,
+            effectiveFrom: LessThanOrEqual(at),
+            effectiveTo: MoreThan(at),
+          },
+          {
+            currency,
+            effectiveFrom: LessThanOrEqual(at),
+            effectiveTo: IsNull(),
+          },
+        ],
+        order: { effectiveFrom: 'DESC', version: 'DESC' },
+        lock: { mode: 'pessimistic_read' },
+      });
+    let configs = await findCurrent();
+    if (configs.length > 1)
       throw new ConflictException(
         'Exactly one current fee configuration is required',
       );
-    return configs[0];
+    if (configs.length === 1) return configs[0];
+
+    await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      `marketplace-fee-bootstrap:${currency}`,
+    ]);
+    configs = await findCurrent();
+    if (configs.length > 1)
+      throw new ConflictException(
+        'Exactly one current fee configuration is required',
+      );
+    if (configs.length === 1) return configs[0];
+
+    const now = new Date();
+    return repository.save(
+      repository.create({
+        id: randomUUID(),
+        name: `Automatic default ${currency}`,
+        version: 1,
+        createdBy,
+        feeBasisPoints: this.config.getOrThrow<number>(
+          'MARKETPLACE_DEFAULT_FEE_BASIS_POINTS',
+        ),
+        fixedFeeAmount: formatMoney(
+          parseMoney(
+            this.config.getOrThrow<string>(
+              'MARKETPLACE_DEFAULT_FIXED_FEE_AMOUNT',
+            ),
+          ),
+        ),
+        currency,
+        isActive: true,
+        effectiveFrom: at,
+        effectiveTo: null,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
   }
 
   private async restoreLegacyBudget(

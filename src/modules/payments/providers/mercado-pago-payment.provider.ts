@@ -35,6 +35,9 @@ export class MercadoPagoPaymentProvider implements PaymentProvider {
   async createPreference(
     input: CreatePreferenceInput,
   ): Promise<PaymentPreference> {
+    const notificationUrl = this.config.get<string>(
+      'MERCADO_PAGO_NOTIFICATION_URL',
+    );
     const response = await this.request<Record<string, unknown>>(
       '/checkout/preferences',
       {
@@ -51,9 +54,7 @@ export class MercadoPagoPaymentProvider implements PaymentProvider {
             },
           ],
           external_reference: input.paymentId,
-          notification_url: this.config.getOrThrow<string>(
-            'MERCADO_PAGO_NOTIFICATION_URL',
-          ),
+          ...(notificationUrl ? { notification_url: notificationUrl } : {}),
           back_urls: this.backUrls(),
           auto_return: 'approved',
         },
