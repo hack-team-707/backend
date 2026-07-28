@@ -2,83 +2,145 @@ name: Deploy Backend
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-backend-production
+  cancel-in-progress: false
 
 jobs:
-  test:
+  verify:
+    name: Verify backend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        working-directory: backend
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-${{ github.sha }}
+          path: |
+            dist
+            ecosystem.config.cjs
+            package.json
+            pnpm-lock.yaml
+          if-no-files-found: error
+          retention-days: 3
 
   deploy:
-    needs: test
+    name: Deploy to EC2
+    needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - name: Download deployment artifact
+        uses: actions/download-artifact@v4
         with:
-          node-version: '22'
+          name: backend-${{ github.sha }}
+          path: release
 
-      - name: Install dependencies and build
-        working-directory: backend
-        run: pnpm install --no-frozen-lockfile && pnpm run build
-
-      - name: Copy artifacts to EC2 via SCP
+      - name: Copy release to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: 'backend/dist/,backend/package.json,backend/pnpm-lock.yaml'
-          target: /home/ec2-user/resolve-backend
+          source: release/*
+          target: /home/ec2-user/resolve-backend/releases/${{ github.sha }}
           strip_components: 1
 
-      - name: Deploy via SSH
+      - name: Activate release
         uses: appleboy/ssh-action@v1
+        env:
+          RELEASE_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: RELEASE_SHA
+          script_stop: true
           script: |
-            cd /home/ec2-user/resolve-backend
+            set -eu
 
-            # Backup current deployment
-            cp -r dist dist.bak 2>/dev/null || true
+            APP_ROOT=/home/ec2-user/resolve-backend
+            RELEASE_DIR="$APP_ROOT/releases/$RELEASE_SHA"
+            CURRENT_LINK="$APP_ROOT/current"
 
-            # Install production dependencies
-            pnpm install --prod
+            test -f "$RELEASE_DIR/package.json"
+            test -f "$RELEASE_DIR/pnpm-lock.yaml"
+            test -f "$RELEASE_DIR/dist/main.js"
+            test -f "$RELEASE_DIR/ecosystem.config.cjs"
 
-            # Run TypeORM migrations (skip if no data-source or no migrations)
-            if [ -f dist/data-source.js ]; then
-              npx typeorm migration:run -d dist/data-source.js 2>&1 || echo "No migrations to run or migration skipped"
-            else
-              echo "No data-source.js found, skipping migrations"
+            cd "$RELEASE_DIR"
+
+            if [ -f "$APP_ROOT/.env" ]; then
+              ln -sfn "$APP_ROOT/.env" .env
             fi
 
-            # Start or restart application
-            pm2 start /home/ec2-user/ecosystem.config.js 2>/dev/null || pm2 restart resolve-api
+            pnpm install --prod --frozen-lockfile
 
-            # Wait for application to start
-            sleep 5
+            PREVIOUS_RELEASE=""
+            if [ -L "$CURRENT_LINK" ]; then
+              PREVIOUS_RELEASE="$(readlink -f "$CURRENT_LINK")"
+            fi
 
-            # Health check
-            curl -f http://localhost:3000/api/health || {
-              echo "Health check failed, rolling back..."
-              rm -rf dist && mv dist.bak dist 2>/dev/null || true
-              pm2 restart resolve-api 2>/dev/null || true
+            ln -sfnT "$RELEASE_DIR" "$CURRENT_LINK"
+
+            pm2 startOrReload "$CURRENT_LINK/ecosystem.config.cjs" --update-env
+
+            HEALTHY=0
+            ATTEMPT=1
+            while [ "$ATTEMPT" -le 10 ]; do
+              if curl --fail --silent --show-error \
+                http://localhost:3000/api/health >/dev/null; then
+                HEALTHY=1
+                break
+              fi
+              sleep 3
+              ATTEMPT=$((ATTEMPT + 1))
+            done
+
+            if [ "$HEALTHY" -ne 1 ]; then
+              echo "Health check failed; restoring previous release."
+              if [ -n "$PREVIOUS_RELEASE" ] && [ -d "$PREVIOUS_RELEASE" ]; then
+                ln -sfnT "$PREVIOUS_RELEASE" "$CURRENT_LINK"
+                pm2 startOrReload \
+                  "$CURRENT_LINK/ecosystem.config.cjs" \
+                  --update-env || true
+              fi
               exit 1
-            }
+            fi
 
-            # Cleanup and save
-            rm -rf dist.bak
             pm2 save

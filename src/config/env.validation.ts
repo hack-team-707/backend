@@ -27,7 +27,8 @@ interface Environment {
   VAPID_SUBJECT?: string;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
-  AI_PROVIDER: 'disabled' | 'nvidia' | 'openai' | 'anthropic' | 'gemini' | 'bedrock';
+  AI_PROVIDER:
+    'disabled' | 'nvidia' | 'openai' | 'anthropic' | 'gemini' | 'bedrock';
   NVIDIA_API_KEY?: string;
   NVIDIA_MODEL: string;
   NVIDIA_BASE_URL: string;
@@ -235,9 +236,14 @@ export function validateEnvironment(
     throw new Error('DATABASE_URL must be a PostgreSQL connection URI');
   }
   if (
-    !['disabled', 'nvidia', 'openai', 'anthropic', 'gemini', 'bedrock'].includes(
-      aiProvider,
-    )
+    ![
+      'disabled',
+      'nvidia',
+      'openai',
+      'anthropic',
+      'gemini',
+      'bedrock',
+    ].includes(aiProvider)
   ) {
     throw new Error(
       'AI_PROVIDER must be disabled, nvidia, openai, anthropic, gemini, or bedrock',

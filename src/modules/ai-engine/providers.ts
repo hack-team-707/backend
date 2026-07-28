@@ -208,7 +208,10 @@ export class BedrockProvider implements AiProvider {
     }
   }
 
-  async analyze(prompt: string, options?: AiGenerateOptions): Promise<AiAnalysis> {
+  async analyze(
+    prompt: string,
+    options?: AiGenerateOptions,
+  ): Promise<AiAnalysis> {
     return parseAiAnalysis(await this.generate(prompt, options));
   }
 }

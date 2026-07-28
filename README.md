@@ -58,6 +58,31 @@ $ pnpm run test:e2e
 $ pnpm run test:cov
 ```
 
+## Deployment
+
+The production workflow is defined in
+`.github/workflows/deploy-backend.yml`. The backend repository itself is the
+workflow root, so build commands must run without an additional `backend`
+working directory.
+
+Required GitHub Actions secrets:
+
+- `EC2_HOST`
+- `EC2_SSH_KEY`
+
+The EC2 host must provide Node.js 22, pnpm 9, PM2, and curl for the `ec2-user`
+account. Production environment variables are stored only on the server at:
+
+```text
+/home/ec2-user/resolve-backend/.env
+```
+
+Each successful workflow uploads an immutable release to
+`/home/ec2-user/resolve-backend/releases/<commit-sha>`, switches the `current`
+symlink, reloads `resolve-api` through PM2, and checks
+`http://localhost:3000/api/health`. If that check fails, the workflow restores
+the previous release.
+
 ## Support
 
 Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
