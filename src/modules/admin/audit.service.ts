@@ -33,6 +33,21 @@ export class AuditService {
         entityId: input.entityId,
         timestamp: new Date().toISOString(),
         metadata: input.metadata ?? {},
+        ...(typeof input.metadata?.sessionId === 'string'
+          ? { sessionId: input.metadata.sessionId }
+          : {}),
+        ...(typeof input.metadata?.outcome === 'string'
+          ? { outcome: input.metadata.outcome }
+          : {}),
+        ...(typeof input.metadata?.correlationId === 'string'
+          ? { correlationId: input.metadata.correlationId }
+          : {}),
+        ...(typeof input.metadata?.ipAddressHash === 'string'
+          ? { ipAddressHash: input.metadata.ipAddressHash }
+          : {}),
+        ...(typeof input.metadata?.userAgent === 'string'
+          ? { userAgent: input.metadata.userAgent.slice(0, 500) }
+          : {}),
       }),
     );
   }

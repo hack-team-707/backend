@@ -209,3 +209,140 @@ export interface PendingAction {
   syncStatus: 'pending' | 'syncing' | 'synced' | 'failed';
   retryCount: number;
 }
+
+export enum PaymentPlanStatus {
+  DRAFT = 'draft',
+  PENDING_ACCEPTANCE = 'pending_acceptance',
+  ACTIVE = 'active',
+  SUPERSEDED = 'superseded',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
+}
+
+export enum ParticipantShareAcceptanceStatus {
+  PENDING = 'pending',
+  ACCEPTED = 'accepted',
+  REJECTED = 'rejected',
+}
+
+export enum PaymentInstallmentStatus {
+  PENDING = 'pending',
+  DUE = 'due',
+  PROCESSING = 'processing',
+  PAID = 'paid',
+  OVERDUE = 'overdue',
+  CANCELLED = 'cancelled',
+  REFUNDED = 'refunded',
+}
+
+export enum PaymentProvider {
+  MANUAL = 'manual',
+  STRIPE = 'stripe',
+  MERCADO_PAGO = 'mercado_pago',
+}
+
+export enum PaymentStatus {
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  SUCCEEDED = 'succeeded',
+  FAILED = 'failed',
+  CANCELLED = 'cancelled',
+  REFUNDED = 'refunded',
+}
+
+export enum PaymentRefundStatus {
+  PROCESSING = 'processing',
+  REFUNDED = 'refunded',
+  FAILED = 'failed',
+}
+
+export enum PaymentWebhookStatus {
+  RECEIVED = 'received',
+  PROCESSING = 'processing',
+  PROCESSED = 'processed',
+  FAILED = 'failed',
+  IGNORED = 'ignored',
+}
+
+export enum PaymentDistributionType {
+  PARTICIPANT_SHARE = 'participant_share',
+  MARKETPLACE_FEE = 'marketplace_fee',
+  REFUND = 'refund',
+}
+
+export enum WalletStatus {
+  ACTIVE = 'active',
+  FROZEN = 'frozen',
+  CLOSED = 'closed',
+}
+
+export enum LedgerBalanceBucket {
+  PENDING = 'pending',
+  AVAILABLE = 'available',
+  HELD = 'held',
+}
+
+export enum LedgerEntryDirection {
+  CREDIT = 'credit',
+  DEBIT = 'debit',
+}
+
+export enum LedgerEntryType {
+  PAYMENT_DISTRIBUTION = 'payment_distribution',
+  PAYMENT_REVERSAL = 'payment_reversal',
+  WITHDRAWAL_HOLD = 'withdrawal_hold',
+  WITHDRAWAL_RELEASE = 'withdrawal_release',
+  PAYOUT = 'payout',
+  ADJUSTMENT = 'adjustment',
+}
+
+export enum WithdrawalStatus {
+  REQUESTED = 'requested',
+  UNDER_REVIEW = 'under_review',
+  APPROVED = 'approved',
+  PROCESSING = 'processing',
+  COMPLETED = 'completed',
+  REJECTED = 'rejected',
+  CANCELLED = 'cancelled',
+  FAILED = 'failed',
+}
+
+export enum PayoutStatus {
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  PAID = 'paid',
+  FAILED = 'failed',
+  CANCELLED = 'cancelled',
+}
+
+export interface MoneyAmount {
+  amount: string;
+  currency: string;
+}
+
+export interface MarketplaceFeeSnapshot {
+  feeConfigId: string;
+  feeBasisPoints: number;
+  fixedFeeAmount: string;
+  currency: string;
+}
+
+export interface PaymentWebhookPayload {
+  provider: PaymentProvider;
+  providerEventId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  receivedAt: Date;
+}
+
+export interface WalletLedgerMetadata {
+  sourceType?: string;
+  sourceId?: string;
+  correlationId?: string;
+  [key: string]: unknown;
+}
+
+export interface PayoutDestination {
+  type: string;
+  reference: string;
+}

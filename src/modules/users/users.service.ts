@@ -21,6 +21,10 @@ export class UsersService {
     return this.repository.save(this.repository.create(user));
   }
 
+  save(user: User): Promise<User> {
+    return this.repository.save(user);
+  }
+
   async getPublicById(id: string): Promise<PublicUser> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('User not found');

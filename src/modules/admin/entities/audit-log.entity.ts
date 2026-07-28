@@ -25,4 +25,21 @@ export class AuditLog {
 
   @Column('jsonb')
   metadata!: Record<string, unknown>;
+
+  @Column('uuid', { nullable: true })
+  @Index()
+  sessionId?: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  outcome?: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  @Index()
+  correlationId?: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  ipAddressHash?: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  userAgent?: string | null;
 }

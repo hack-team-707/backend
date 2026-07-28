@@ -16,6 +16,24 @@ export class User {
   @Column()
   passwordHash!: string;
 
+  @Column({ type: 'varchar', default: 'scrypt' })
+  passwordAlgorithm!: 'scrypt' | 'bcrypt';
+
+  @Column({ default: false })
+  mfaEnabled!: boolean;
+
+  @Column({ type: 'varchar', nullable: true })
+  mfaSecretEncrypted?: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  mfaPendingSecretEncrypted?: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  mfaVerifiedAt?: string | null;
+
+  @Column({ type: 'bigint', nullable: true })
+  mfaLastUsedTimeStep?: string | null;
+
   @Column('text', { array: true })
   roles!: UserRole[];
 

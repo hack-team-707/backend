@@ -133,7 +133,7 @@ export class MatchingService {
           type: NotificationType.OPPORTUNITY_AVAILABLE,
           title: 'Nueva oportunidad compatible',
           message:
-            'Hay un problema nuevo relacionado con tus capacidades. Puedes revisarlo mientras el cliente evalúa a quién seleccionar.',
+            'Hay un problema nuevo relacionado con tus capacidades. Puedes revisarlo y enviar una propuesta sin esperar una selección previa.',
           href: '/opportunities',
         },
         requesterId,

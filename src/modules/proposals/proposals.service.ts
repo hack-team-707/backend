@@ -435,9 +435,27 @@ export class ProposalsService {
       problemId: dto.problemId,
       solverId,
     });
-    if (!match || match.status !== MatchStatus.ACCEPTED)
+    if (!match)
       throw new ForbiddenException(
-        'Primero debes aceptar la oportunidad para enviar una propuesta',
+        'La oportunidad no está disponible para este perfil',
+      );
+    if (match.invitationKind === 'team')
+      throw new ForbiddenException(
+        'La propuesta del equipo debe conservar su identificador y reglas de aceptación',
+      );
+    if (match.status === MatchStatus.DECLINED)
+      throw new ForbiddenException(
+        'No puedes enviar una propuesta después de rechazar la oportunidad',
+      );
+    if (
+      ![
+        MatchStatus.SUGGESTED,
+        MatchStatus.PENDING,
+        MatchStatus.ACCEPTED,
+      ].includes(match.status)
+    )
+      throw new ForbiddenException(
+        'La oportunidad no admite una nueva propuesta en su estado actual',
       );
     if (dto.teamMembers?.some((member) => member.solverId !== solverId))
       throw new ForbiddenException(

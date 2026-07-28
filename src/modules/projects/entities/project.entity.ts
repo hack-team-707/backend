@@ -37,10 +37,10 @@ export class Project {
   @Column('jsonb', { default: () => "'[]'::jsonb" })
   deliverySchedule!: ProposalScheduledDeliverable[];
 
-  @Column('double precision', { nullable: true })
+  @Column('numeric', { precision: 19, scale: 4, nullable: true })
   totalPrice?: number | null;
 
-  @Column('varchar', { nullable: true })
+  @Column('varchar', { length: 3, nullable: true })
   currency?: string | null;
 
   @Column('jsonb', { default: () => "'{}'::jsonb" })

@@ -134,6 +134,44 @@ describe('ProposalsService adjustment flow', () => {
 });
 
 describe('ProposalsService team proposal rules', () => {
+  it('allows a suggested individual match to submit without prior selection', async () => {
+    const matches = {
+      findOneBy: jest.fn().mockResolvedValue({
+        id: 'match-1',
+        problemId: 'problem-1',
+        solverId: 'solver-1',
+        status: MatchStatus.SUGGESTED,
+      }),
+    };
+    const service = new ProposalsService(
+      {} as never,
+      {} as never,
+      matches as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const solverIds = await (
+      service as unknown as {
+        authorizedSolvers(
+          solverId: string,
+          dto: {
+            problemId: string;
+            teamMembers: Array<{ solverId: string }>;
+          },
+        ): Promise<string[]>;
+      }
+    ).authorizedSolvers('solver-1', {
+      problemId: 'problem-1',
+      teamMembers: [],
+    });
+
+    expect(solverIds).toEqual(['solver-1']);
+  });
+
   it('does not attach a confirmed team to an individual opportunity draft', async () => {
     const matches = {
       findOneBy: jest.fn().mockResolvedValue({

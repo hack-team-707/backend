@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   AuthenticatedUser,
   CurrentUser,
+  MfaOptional,
   Roles,
 } from '../../common/auth.decorators';
 import { UserRole } from '../../shared';
@@ -15,6 +16,7 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @MfaOptional()
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser): Promise<PublicUser> {
     return this.usersService.getPublicById(user.userId);

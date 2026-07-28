@@ -3,6 +3,20 @@ interface Environment {
   PORT: number;
   JWT_SECRET: string;
   JWT_EXPIRES_IN: string;
+  JWT_ACCESS_EXPIRES_IN: string;
+  JWT_REFRESH_EXPIRES_IN: string;
+  JWT_ISSUER: string;
+  JWT_AUDIENCE: string;
+  AUTH_SESSION_V2_ENABLED: boolean;
+  REFRESH_TOKEN_ENABLED: boolean;
+  CSRF_ENFORCED: boolean;
+  MFA_ENFORCED: boolean;
+  LEGACY_JWT_ALLOWED: boolean;
+  RATE_LIMIT_MAX: number;
+  AUTH_RATE_LIMIT_MAX: number;
+  RATE_LIMIT_WINDOW_SECONDS: number;
+  REDIS_URL?: string;
+  MFA_ENCRYPTION_KEY?: string;
   CORS_ORIGINS: string;
   PUBLIC_APP_URL: string;
   DATABASE_URL: string;
@@ -44,6 +58,14 @@ interface Environment {
   GOOGLE_PLACES_REGION: string;
   GOOGLE_PLACES_DEFAULT_RADIUS_METERS: number;
   GOOGLE_PLACES_TIMEOUT_MS: number;
+  FINANCIAL_FEATURE_ENABLED: boolean;
+  MERCADO_PAGO_ACCESS_TOKEN?: string;
+  MERCADO_PAGO_WEBHOOK_SECRET?: string;
+  MERCADO_PAGO_BASE_URL: string;
+  MERCADO_PAGO_NOTIFICATION_URL?: string;
+  MERCADO_PAGO_BACK_URLS?: string;
+  MERCADO_PAGO_WEBHOOK_TOLERANCE_SECONDS: number;
+  MULTI_SELLER_SPLIT_ENABLED: boolean;
 }
 
 export function validateEnvironment(
@@ -55,6 +77,47 @@ export function validateEnvironment(
   const jwtSecret = raw.JWT_SECRET;
   const jwtExpiresIn =
     typeof raw.JWT_EXPIRES_IN === 'string' ? raw.JWT_EXPIRES_IN : '1h';
+  const jwtAccessExpiresIn =
+    typeof raw.JWT_ACCESS_EXPIRES_IN === 'string'
+      ? raw.JWT_ACCESS_EXPIRES_IN
+      : '15m';
+  const jwtRefreshExpiresIn =
+    typeof raw.JWT_REFRESH_EXPIRES_IN === 'string'
+      ? raw.JWT_REFRESH_EXPIRES_IN
+      : '7d';
+  const jwtIssuer =
+    typeof raw.JWT_ISSUER === 'string' && raw.JWT_ISSUER.trim()
+      ? raw.JWT_ISSUER.trim()
+      : 'resolve-platform';
+  const jwtAudience =
+    typeof raw.JWT_AUDIENCE === 'string' && raw.JWT_AUDIENCE.trim()
+      ? raw.JWT_AUDIENCE.trim()
+      : 'resolve-platform-web';
+  const booleanValue = (name: string, fallback: boolean): boolean => {
+    const value = raw[name] ?? fallback;
+    if (![true, false, 'true', 'false'].includes(value as never))
+      throw new Error(`${name} must be true or false`);
+    return value === true || value === 'true';
+  };
+  const sessionV2Enabled = booleanValue('AUTH_SESSION_V2_ENABLED', false);
+  const refreshTokenEnabled = booleanValue('REFRESH_TOKEN_ENABLED', false);
+  const csrfEnforced = booleanValue('CSRF_ENFORCED', false);
+  const mfaEnforced = booleanValue('MFA_ENFORCED', false);
+  const legacyJwtAllowed = booleanValue('LEGACY_JWT_ALLOWED', true);
+  const financialFeatureEnabled = booleanValue(
+    'FINANCIAL_FEATURE_ENABLED',
+    false,
+  );
+  const multiSellerSplitEnabled = booleanValue(
+    'MULTI_SELLER_SPLIT_ENABLED',
+    false,
+  );
+  const mercadoPagoWebhookToleranceSeconds = Number(
+    raw.MERCADO_PAGO_WEBHOOK_TOLERANCE_SECONDS ?? 300,
+  );
+  const rateLimitMax = Number(raw.RATE_LIMIT_MAX ?? 120);
+  const authRateLimitMax = Number(raw.AUTH_RATE_LIMIT_MAX ?? 10);
+  const rateLimitWindowSeconds = Number(raw.RATE_LIMIT_WINDOW_SECONDS ?? 60);
   const corsOrigins =
     typeof raw.CORS_ORIGINS === 'string'
       ? raw.CORS_ORIGINS
@@ -100,12 +163,67 @@ export function validateEnvironment(
     privateKey: optionalString(raw.VAPID_PRIVATE_KEY),
   };
   const configuredVapidValues = Object.values(vapid).filter(Boolean).length;
+  const mercadoPagoAccessToken = optionalString(raw.MERCADO_PAGO_ACCESS_TOKEN);
+  const mercadoPagoWebhookSecret = optionalString(
+    raw.MERCADO_PAGO_WEBHOOK_SECRET,
+  );
+  const mercadoPagoBaseUrl = (
+    optionalString(raw.MERCADO_PAGO_BASE_URL) ?? 'https://api.mercadopago.com'
+  ).replace(/\/$/, '');
+  const mercadoPagoNotificationUrl = optionalString(
+    raw.MERCADO_PAGO_NOTIFICATION_URL,
+  );
+  const mercadoPagoBackUrls = optionalString(raw.MERCADO_PAGO_BACK_URLS);
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('PORT must be an integer between 1 and 65535');
   }
   if (typeof jwtSecret !== 'string' || jwtSecret.length < 32) {
     throw new Error('JWT_SECRET must contain at least 32 characters');
+  }
+  const durationSeconds = (name: string, value: string): number => {
+    const match = /^(\d+)(s|m|h|d)$/.exec(value);
+    if (!match)
+      throw new Error(`${name} must use s, m, h, or d duration syntax`);
+    const factors = { s: 1, m: 60, h: 3600, d: 86400 } as const;
+    return Number(match[1]) * factors[match[2] as keyof typeof factors];
+  };
+  if (durationSeconds('JWT_ACCESS_EXPIRES_IN', jwtAccessExpiresIn) > 15 * 60) {
+    throw new Error('JWT_ACCESS_EXPIRES_IN must not exceed 15 minutes');
+  }
+  if (
+    durationSeconds('JWT_REFRESH_EXPIRES_IN', jwtRefreshExpiresIn) >
+    7 * 86400
+  ) {
+    throw new Error('JWT_REFRESH_EXPIRES_IN must not exceed 7 days');
+  }
+  for (const [name, value, minimum, maximum] of [
+    ['RATE_LIMIT_MAX', rateLimitMax, 1, 10000],
+    ['AUTH_RATE_LIMIT_MAX', authRateLimitMax, 1, 100],
+    ['RATE_LIMIT_WINDOW_SECONDS', rateLimitWindowSeconds, 1, 3600],
+  ] as const) {
+    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+      throw new Error(
+        `${name} must be an integer between ${minimum} and ${maximum}`,
+      );
+    }
+  }
+  if (refreshTokenEnabled && !sessionV2Enabled) {
+    throw new Error('REFRESH_TOKEN_ENABLED requires AUTH_SESSION_V2_ENABLED');
+  }
+  if ((csrfEnforced || mfaEnforced) && !sessionV2Enabled) {
+    throw new Error(
+      'CSRF_ENFORCED and MFA_ENFORCED require AUTH_SESSION_V2_ENABLED',
+    );
+  }
+  if (
+    nodeEnv === 'production' &&
+    sessionV2Enabled &&
+    !optionalString(raw.REDIS_URL)
+  ) {
+    throw new Error(
+      'REDIS_URL is required for authentication V2 in production',
+    );
   }
   if (
     typeof databaseUrl !== 'string' ||
@@ -223,12 +341,121 @@ export function validateEnvironment(
     );
   }
 
+  if (multiSellerSplitEnabled) {
+    throw new Error(
+      'MULTI_SELLER_SPLIT_ENABLED=true is not supported by this release',
+    );
+  }
+  if (
+    !Number.isInteger(mercadoPagoWebhookToleranceSeconds) ||
+    mercadoPagoWebhookToleranceSeconds < 1 ||
+    mercadoPagoWebhookToleranceSeconds > 3600
+  ) {
+    throw new Error(
+      'MERCADO_PAGO_WEBHOOK_TOLERANCE_SECONDS must be between 1 and 3600',
+    );
+  }
+  const validFinancialUrl = (value: string): boolean => {
+    try {
+      const url = new URL(value);
+      return (
+        url.protocol === 'https:' ||
+        (nodeEnv !== 'production' &&
+          url.protocol === 'http:' &&
+          ['localhost', '127.0.0.1', '::1'].includes(url.hostname))
+      );
+    } catch {
+      return false;
+    }
+  };
+  if (
+    !validFinancialUrl(mercadoPagoBaseUrl) ||
+    !mercadoPagoBaseUrl.startsWith('https://')
+  )
+    throw new Error('MERCADO_PAGO_BASE_URL must be an HTTPS URL');
+  let parsedBackUrls: Record<string, unknown> | undefined;
+  if (mercadoPagoBackUrls) {
+    try {
+      const parsed = JSON.parse(mercadoPagoBackUrls) as unknown;
+      if (parsed && typeof parsed === 'object')
+        parsedBackUrls = parsed as Record<string, unknown>;
+    } catch {
+      parsedBackUrls = undefined;
+    }
+  }
+  if (financialFeatureEnabled) {
+    if (!mercadoPagoAccessToken)
+      throw new Error(
+        'MERCADO_PAGO_ACCESS_TOKEN is required when FINANCIAL_FEATURE_ENABLED=true',
+      );
+    if (!mercadoPagoWebhookSecret)
+      throw new Error(
+        'MERCADO_PAGO_WEBHOOK_SECRET is required when FINANCIAL_FEATURE_ENABLED=true',
+      );
+    if (!optionalString(raw.REDIS_URL))
+      throw new Error(
+        'REDIS_URL is required when FINANCIAL_FEATURE_ENABLED=true',
+      );
+    if (
+      !mercadoPagoNotificationUrl ||
+      !validFinancialUrl(mercadoPagoNotificationUrl)
+    )
+      throw new Error(
+        'MERCADO_PAGO_NOTIFICATION_URL must be HTTPS (localhost HTTP is allowed in development)',
+      );
+    if (
+      !parsedBackUrls ||
+      !['success', 'failure', 'pending'].every(
+        (name) =>
+          typeof parsedBackUrls?.[name] === 'string' &&
+          validFinancialUrl(parsedBackUrls[name] as string),
+      )
+    )
+      throw new Error(
+        'MERCADO_PAGO_BACK_URLS must be JSON with valid success, failure, and pending URLs',
+      );
+  }
+
   return {
     ...raw,
     NODE_ENV: nodeEnv,
     PORT: port,
     JWT_SECRET: jwtSecret,
     JWT_EXPIRES_IN: jwtExpiresIn,
+    JWT_ACCESS_EXPIRES_IN: jwtAccessExpiresIn,
+    JWT_REFRESH_EXPIRES_IN: jwtRefreshExpiresIn,
+    JWT_ISSUER: jwtIssuer,
+    JWT_AUDIENCE: jwtAudience,
+    AUTH_SESSION_V2_ENABLED: sessionV2Enabled,
+    REFRESH_TOKEN_ENABLED: refreshTokenEnabled,
+    CSRF_ENFORCED: csrfEnforced,
+    MFA_ENFORCED: mfaEnforced,
+    LEGACY_JWT_ALLOWED: legacyJwtAllowed,
+    RATE_LIMIT_MAX: rateLimitMax,
+    AUTH_RATE_LIMIT_MAX: authRateLimitMax,
+    RATE_LIMIT_WINDOW_SECONDS: rateLimitWindowSeconds,
+    FINANCIAL_FEATURE_ENABLED: financialFeatureEnabled,
+    ...(mercadoPagoAccessToken
+      ? { MERCADO_PAGO_ACCESS_TOKEN: mercadoPagoAccessToken }
+      : {}),
+    ...(mercadoPagoWebhookSecret
+      ? { MERCADO_PAGO_WEBHOOK_SECRET: mercadoPagoWebhookSecret }
+      : {}),
+    MERCADO_PAGO_BASE_URL: mercadoPagoBaseUrl,
+    ...(mercadoPagoNotificationUrl
+      ? { MERCADO_PAGO_NOTIFICATION_URL: mercadoPagoNotificationUrl }
+      : {}),
+    ...(mercadoPagoBackUrls
+      ? { MERCADO_PAGO_BACK_URLS: mercadoPagoBackUrls }
+      : {}),
+    MERCADO_PAGO_WEBHOOK_TOLERANCE_SECONDS: mercadoPagoWebhookToleranceSeconds,
+    MULTI_SELLER_SPLIT_ENABLED: multiSellerSplitEnabled,
+    ...(optionalString(raw.REDIS_URL)
+      ? { REDIS_URL: optionalString(raw.REDIS_URL) }
+      : {}),
+    ...(optionalString(raw.MFA_ENCRYPTION_KEY)
+      ? { MFA_ENCRYPTION_KEY: optionalString(raw.MFA_ENCRYPTION_KEY) }
+      : {}),
     CORS_ORIGINS: corsOrigins,
     PUBLIC_APP_URL: publicAppUrl,
     DATABASE_URL: databaseUrl,
