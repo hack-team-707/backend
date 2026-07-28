@@ -56,6 +56,7 @@ jobs:
             ecosystem.config.cjs
             package.json
             pnpm-lock.yaml
+            pnpm-workspace.yaml
           if-no-files-found: error
           retention-days: 3
 
@@ -78,6 +79,7 @@ jobs:
           required_files=(
             release/package.json
             release/pnpm-lock.yaml
+            release/pnpm-workspace.yaml
             release/ecosystem.config.cjs
             release/dist/main.js
           )
@@ -138,6 +140,7 @@ jobs:
 
             require_file "$RELEASE_DIR/package.json"
             require_file "$RELEASE_DIR/pnpm-lock.yaml"
+            require_file "$RELEASE_DIR/pnpm-workspace.yaml"
             require_file "$RELEASE_DIR/dist/main.js"
             require_file "$RELEASE_DIR/ecosystem.config.cjs"
             require_file "$APP_ROOT/.env"
