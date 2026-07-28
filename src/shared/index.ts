@@ -290,13 +290,17 @@ export enum LedgerEntryDirection {
 export enum LedgerEntryType {
   PAYMENT_DISTRIBUTION = 'payment_distribution',
   PAYMENT_REVERSAL = 'payment_reversal',
+  WITHDRAWAL_RESERVE = 'withdrawal_reserve',
   WITHDRAWAL_HOLD = 'withdrawal_hold',
   WITHDRAWAL_RELEASE = 'withdrawal_release',
+  WITHDRAWAL = 'withdrawal',
+  WITHDRAWAL_CANCELLED = 'withdrawal_cancelled',
   PAYOUT = 'payout',
   ADJUSTMENT = 'adjustment',
 }
 
 export enum WithdrawalStatus {
+  PENDING_REVIEW = 'pending_review',
   REQUESTED = 'requested',
   UNDER_REVIEW = 'under_review',
   APPROVED = 'approved',

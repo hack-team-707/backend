@@ -25,10 +25,7 @@ export class WalletsService {
     private readonly ledger: Repository<WalletLedgerEntry>,
   ) {}
 
-  async findOrCreateWallet(
-    userId: string,
-    currency: string,
-  ): Promise<Wallet> {
+  async findOrCreateWallet(userId: string, currency: string): Promise<Wallet> {
     let wallet = await this.wallets.findOne({
       where: { userId, currency },
     });
@@ -169,11 +166,7 @@ export class WalletsService {
     try {
       return await this.ledger.save(entry);
     } catch (error) {
-      if (
-        error instanceof Error &&
-        'code' in error &&
-        error.code === '23505'
-      ) {
+      if (error instanceof Error && 'code' in error && error.code === '23505') {
         // Duplicate idempotency key - return existing entry
         const existing = await this.ledger.findOne({
           where: { idempotencyKey: input.idempotencyKey },
@@ -207,9 +200,7 @@ export class WalletsService {
           : balance.held;
 
     if (parseMoney(fromBucketBalance) < parseMoney(input.amount)) {
-      throw new BadRequestException(
-        `Insufficient ${input.fromBucket} balance`,
-      );
+      throw new BadRequestException(`Insufficient ${input.fromBucket} balance`);
     }
 
     // Create debit from source bucket

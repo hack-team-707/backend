@@ -7,10 +7,7 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
-import {
-  AuthenticatedUser,
-  CurrentUser,
-} from '../../common/auth.decorators';
+import { AuthenticatedUser, CurrentUser } from '../../common/auth.decorators';
 import { WalletDto, LedgerEntryDto } from './dto/wallet.dto';
 import { WalletsService } from './wallets.service';
 

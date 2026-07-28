@@ -53,6 +53,8 @@ import { ProposalsModule } from './modules/proposals/proposals.module';
 import { SkillCardsModule } from './modules/skill-cards/skill-cards.module';
 import { TeamFormationModule } from './modules/team-formation/team-formation.module';
 import { UsersModule } from './modules/users/users.module';
+import { WalletsModule } from './modules/wallets/wallets.module';
+import { WithdrawalsModule } from './modules/withdrawals/withdrawals.module';
 
 @Module({
   imports: [
@@ -123,6 +125,8 @@ import { UsersModule } from './modules/users/users.module';
     ReputationModule,
     AdminModule,
     DisputesModule,
+    WalletsModule,
+    WithdrawalsModule,
   ],
   controllers: [AppController],
   providers: [

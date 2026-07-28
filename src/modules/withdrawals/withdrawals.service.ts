@@ -55,10 +55,7 @@ export class WithdrawalsService {
     }
 
     // Get or create wallet
-    const wallet = await this.wallets.findOrCreateWallet(
-      userId,
-      dto.currency,
-    );
+    const wallet = await this.wallets.findOrCreateWallet(userId, dto.currency);
 
     // Check available balance
     const balance = await this.wallets.calculateBalance(wallet.id);
@@ -85,11 +82,7 @@ export class WithdrawalsService {
     try {
       await this.withdrawals.save(withdrawal);
     } catch (error) {
-      if (
-        error instanceof Error &&
-        'code' in error &&
-        error.code === '23505'
-      ) {
+      if (error instanceof Error && 'code' in error && error.code === '23505') {
         // Duplicate idempotency key
         const existing = await this.withdrawals.findOne({
           where: { idempotencyKey: idempotencyKey ?? '' },

@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString, Min, MaxLength } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsNumber,
+  IsString,
+  Min,
+  MaxLength,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { WithdrawalStatus } from '../../../shared';
 
@@ -19,14 +25,19 @@ export class CreateWithdrawalDto {
   @MaxLength(80)
   destinationType!: string;
 
-  @ApiProperty({ description: 'Destination reference (e.g., IBAN, account number)' })
+  @ApiProperty({
+    description: 'Destination reference (e.g., IBAN, account number)',
+  })
   @IsString()
   @MaxLength(500)
   destinationReference!: string;
 }
 
 export class ReviewWithdrawalDto {
-  @ApiProperty({ description: 'Approval decision', enum: ['approved', 'rejected'] })
+  @ApiProperty({
+    description: 'Approval decision',
+    enum: ['approved', 'rejected'],
+  })
   @IsString()
   @IsNotEmpty()
   decision!: 'approved' | 'rejected';
