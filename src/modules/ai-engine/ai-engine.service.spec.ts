@@ -185,7 +185,7 @@ describe('AiEngineService capability assessment', () => {
       'Sin módulos',
       'Al azar',
     ]);
-    expect(first.countdownSeconds).toBe(15);
+    expect(first.countdownSeconds).toBe(40);
     history.push(
       {
         role: 'user',

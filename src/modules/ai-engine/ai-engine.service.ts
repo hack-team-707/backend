@@ -95,7 +95,7 @@ export interface AiSkillCoverage {
 @Injectable()
 export class AiEngineService {
   private readonly logger = new Logger(AiEngineService.name);
-  private static readonly QUESTION_SECONDS = 15;
+  private static readonly QUESTION_SECONDS = 40;
   private static readonly TIMEOUT_MESSAGE = 'Tiempo agotado';
   private static readonly CREATE_PORTFOLIO_REPLY = 'Sí, crear mi portafolio';
   private static readonly USE_EXTERNAL_LINK_REPLY =
@@ -609,7 +609,7 @@ export class AiEngineService {
         },
         missingFields: ['assessmentAnswers', 'evidenceLinks'],
         clarifyingQuestion: question,
-        assistantReply: `Evaluaremos tu capacidad en ${assessment.capability} mediante tres preguntas de opción múltiple. Tendrás 15 segundos para responder cada una. ${question}`,
+        assistantReply: `Evaluaremos tu capacidad en ${assessment.capability} mediante tres preguntas de opción múltiple. Tendrás 40 segundos para responder cada una. ${question}`,
         capabilityAssessment: startedAssessment,
         quickReplies: assessment.questions[0].options,
         countdownSeconds: AiEngineService.QUESTION_SECONDS,
