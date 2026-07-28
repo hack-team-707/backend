@@ -76,6 +76,7 @@ describe('ConversationsService', () => {
       type: ConversationType.CAPABILITY,
     });
     await service.addMessage('owner', conversation.id, {
+      text: 'Quiero registrar mi experiencia en instalaciones eléctricas.',
       structuredCard: {
         actionType: ConversationActionType.REGISTER_CAPABILITY,
         payload: {
@@ -91,6 +92,13 @@ describe('ConversationsService', () => {
     const confirmed = await service.confirm('owner', conversation.id);
     expect(confirmed.status).toBe(ConversationStatus.CONFIRMED);
     expect(await skills.findMine('owner')).toHaveLength(1);
+    const [historyItem] = await service.findMine('owner');
+    expect(historyItem.requestPreview).toBe(
+      'Quiero registrar mi experiencia en instalaciones eléctricas.',
+    );
+    expect(historyItem.resultPreview).toBe(
+      'Capacidad registrada correctamente.',
+    );
   });
 
   it('starts matching compatible solvers after a problem is confirmed', async () => {

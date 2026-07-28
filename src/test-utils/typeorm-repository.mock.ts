@@ -1,5 +1,6 @@
 import {
   DeepPartial,
+  FindOperator,
   FindManyOptions,
   FindOptionsWhere,
   Repository,
@@ -13,9 +14,16 @@ export function createMockRepository<T extends EntityWithId>(): Repository<T> {
   const records = new Map<string, T>();
   const matches = (entity: T, where?: FindOptionsWhere<T>): boolean =>
     !where ||
-    Object.entries(where).every(
-      ([key, value]) => entity[key as keyof T] === value,
-    );
+    Object.entries(where).every(([key, value]) => {
+      const actual = entity[key as keyof T];
+      if (value instanceof FindOperator) {
+        if (value.type === 'in' && Array.isArray(value.value)) {
+          return value.value.includes(actual);
+        }
+        return false;
+      }
+      return actual === value;
+    });
 
   return {
     create: (input: DeepPartial<T>) => input as T,

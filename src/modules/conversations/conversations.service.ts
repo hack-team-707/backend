@@ -12,7 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { randomUUID } from 'node:crypto';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { LocationEncryptionService } from '../../common/location-encryption.service';
 import {
   AiEngineService,
@@ -53,6 +53,11 @@ export interface ConversationTurnResult {
 
 export interface GuestConversationResult extends ConversationTurnResult {
   guestToken: string;
+}
+
+export interface ConversationHistoryItem extends Conversation {
+  requestPreview?: string;
+  resultPreview?: string;
 }
 
 interface GuestConversationToken {
@@ -166,11 +171,65 @@ export class ConversationsService {
     );
   }
 
-  findMine(ownerId: string): Promise<Conversation[]> {
-    return this.conversations.find({
+  async findMine(ownerId: string): Promise<ConversationHistoryItem[]> {
+    const conversations = await this.conversations.find({
       where: { ownerId },
       order: { updatedAt: 'DESC' },
     });
+    if (conversations.length === 0) return [];
+
+    const messages = await this.messages.find({
+      where: { conversationId: In(conversations.map(({ id }) => id)) },
+      order: { createdAt: 'ASC' },
+      select: [
+        'id',
+        'conversationId',
+        'role',
+        'text',
+        'structuredCard',
+        'createdAt',
+      ],
+    });
+    const grouped = new Map<string, Message[]>();
+    for (const message of messages) {
+      const history = grouped.get(message.conversationId) ?? [];
+      history.push(message);
+      grouped.set(message.conversationId, history);
+    }
+
+    return conversations.map((conversation) => {
+      const history = grouped.get(conversation.id) ?? [];
+      const request = history.find(
+        (message) =>
+          message.role === MessageRole.USER &&
+          Boolean(this.requestPreview(message)),
+      );
+      const result = [...history]
+        .reverse()
+        .find(
+          (message) =>
+            message.role !== MessageRole.USER && message.text?.trim(),
+        );
+      return {
+        ...conversation,
+        ...(request && this.requestPreview(request)
+          ? { requestPreview: this.requestPreview(request) }
+          : {}),
+        ...(result?.text?.trim() ? { resultPreview: result.text.trim() } : {}),
+      };
+    });
+  }
+
+  private requestPreview(message: Message): string | undefined {
+    if (message.text?.trim()) return message.text.trim();
+    const card = message.structuredCard;
+    if (!card) return undefined;
+    if (card.analysis?.summary?.trim()) return card.analysis.summary.trim();
+    for (const key of ['description', 'title', 'name', 'skillName']) {
+      const value = card.payload[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return undefined;
   }
 
   async addMessage(

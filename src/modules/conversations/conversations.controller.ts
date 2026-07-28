@@ -23,6 +23,7 @@ import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import {
   ConversationsService,
+  ConversationHistoryItem,
   ConversationTurnResult,
   GuestConversationResult,
 } from './conversations.service';
@@ -65,7 +66,7 @@ export class ConversationsController {
   }
   @Get() findMine(
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<Conversation[]> {
+  ): Promise<ConversationHistoryItem[]> {
     return this.service.findMine(user.userId);
   }
   @Post(':id/messages') addMessage(
