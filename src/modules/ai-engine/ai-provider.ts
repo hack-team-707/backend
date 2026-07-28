@@ -1,7 +1,7 @@
 import { ProficiencyLevel } from '../../shared';
 
 export type AiProviderName =
-  'disabled' | 'nvidia' | 'openai' | 'anthropic' | 'gemini';
+  'disabled' | 'nvidia' | 'openai' | 'anthropic' | 'gemini' | 'bedrock';
 
 export interface AiAnalysis {
   category: string;
@@ -49,10 +49,15 @@ export interface CapabilityAssessmentState {
   };
 }
 
+export interface AiGenerateOptions {
+  /** When true, use the complex/expensive model for reasoning-heavy tasks. */
+  complex?: boolean;
+}
+
 export interface AiProvider {
   readonly name: AiProviderName;
-  generate(prompt: string): Promise<string>;
-  analyze(prompt: string): Promise<AiAnalysis>;
+  generate(prompt: string, options?: AiGenerateOptions): Promise<string>;
+  analyze(prompt: string, options?: AiGenerateOptions): Promise<AiAnalysis>;
 }
 
 export const AI_PROVIDER = Symbol('AI_PROVIDER');

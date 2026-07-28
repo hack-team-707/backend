@@ -13,7 +13,7 @@ interface Environment {
   VAPID_SUBJECT?: string;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
-  AI_PROVIDER: 'disabled' | 'nvidia' | 'openai' | 'anthropic' | 'gemini';
+  AI_PROVIDER: 'disabled' | 'nvidia' | 'openai' | 'anthropic' | 'gemini' | 'bedrock';
   NVIDIA_API_KEY?: string;
   NVIDIA_MODEL: string;
   NVIDIA_BASE_URL: string;
@@ -26,6 +26,9 @@ interface Environment {
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL: string;
   ANTHROPIC_BASE_URL: string;
+  BEDROCK_REGION: string;
+  BEDROCK_MODEL: string;
+  BEDROCK_MODEL_COMPLEX: string;
   EXTERNAL_OPPORTUNITIES_ENABLED: boolean;
   EXTERNAL_OPPORTUNITIES_TIMEOUT_MS: number;
   MIN_INTERNAL_MATCH_COVERAGE: number;
@@ -96,16 +99,17 @@ export function validateEnvironment(
     throw new Error('DATABASE_URL must be a PostgreSQL connection URI');
   }
   if (
-    !['disabled', 'nvidia', 'openai', 'anthropic', 'gemini'].includes(
+    !['disabled', 'nvidia', 'openai', 'anthropic', 'gemini', 'bedrock'].includes(
       aiProvider,
     )
   ) {
     throw new Error(
-      'AI_PROVIDER must be disabled, nvidia, openai, anthropic, or gemini',
+      'AI_PROVIDER must be disabled, nvidia, openai, anthropic, gemini, or bedrock',
     );
   }
   if (
     aiProvider !== 'disabled' &&
+    aiProvider !== 'bedrock' &&
     !providerKeys[aiProvider as keyof typeof providerKeys]
   ) {
     throw new Error(
@@ -214,6 +218,11 @@ export function validateEnvironment(
     ANTHROPIC_BASE_URL:
       optionalString(raw.ANTHROPIC_BASE_URL)?.replace(/\/$/, '') ??
       'https://api.anthropic.com/v1',
+    BEDROCK_REGION: optionalString(raw.BEDROCK_REGION) ?? 'us-east-1',
+    BEDROCK_MODEL:
+      optionalString(raw.BEDROCK_MODEL) ?? 'amazon.nova-micro-v1:0',
+    BEDROCK_MODEL_COMPLEX:
+      optionalString(raw.BEDROCK_MODEL_COMPLEX) ?? 'amazon.nova-pro-v1:0',
     EXTERNAL_OPPORTUNITIES_ENABLED:
       externalOpportunitiesValue === true ||
       externalOpportunitiesValue === 'true',

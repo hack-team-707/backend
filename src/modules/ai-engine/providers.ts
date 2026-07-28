@@ -1,6 +1,11 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import {
+  BedrockRuntimeClient,
+  ConverseCommand,
+} from '@aws-sdk/client-bedrock-runtime';
+import {
   AiAnalysis,
+  AiGenerateOptions,
   AiProvider,
   AiProviderName,
   parseAiAnalysis,
@@ -156,6 +161,55 @@ export class GeminiProvider implements AiProvider {
 
   async analyze(prompt: string): Promise<AiAnalysis> {
     return parseAiAnalysis(await this.generate(prompt));
+  }
+}
+
+export class BedrockProvider implements AiProvider {
+  readonly name = 'bedrock' as const;
+  private readonly client: BedrockRuntimeClient;
+  private readonly model: string;
+  private readonly modelComplex?: string;
+
+  constructor(config: {
+    region: string;
+    model: string;
+    modelComplex?: string;
+  }) {
+    this.client = new BedrockRuntimeClient({ region: config.region });
+    this.model = config.model;
+    this.modelComplex = config.modelComplex;
+  }
+
+  async generate(prompt: string, options?: AiGenerateOptions): Promise<string> {
+    const modelId =
+      options?.complex && this.modelComplex ? this.modelComplex : this.model;
+    const command = new ConverseCommand({
+      modelId,
+      system: [
+        {
+          text: 'Devuelve únicamente el JSON válido solicitado por el usuario.',
+        },
+      ],
+      messages: [{ role: 'user', content: [{ text: prompt }] }],
+      inferenceConfig: { maxTokens: 1024, temperature: 0 },
+    });
+
+    try {
+      const response = await this.client.send(command);
+      const outputContent = response.output?.message?.content;
+      if (!outputContent || outputContent.length === 0) return '';
+      return outputContent[0].text ?? '';
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message.slice(0, 300) : 'Unknown error';
+      throw new ServiceUnavailableException(
+        `Bedrock request failed: ${message}`,
+      );
+    }
+  }
+
+  async analyze(prompt: string, options?: AiGenerateOptions): Promise<AiAnalysis> {
+    return parseAiAnalysis(await this.generate(prompt, options));
   }
 }
 
