@@ -2,6 +2,30 @@ import { AiProvider } from './ai-provider';
 import { AiEngineService, ConversationHistoryItem } from './ai-engine.service';
 
 describe('AiEngineService capability assessment', () => {
+  it.each([
+    ['Quiero consultar mis proyectos activos', 'project'],
+    ['Muéstrame oportunidades de trabajo remoto', 'opportunity'],
+    ['Quiero ofrecer y validar mis habilidades de backend', 'capability'],
+    ['Necesito resolver un error de autenticación', 'problem'],
+  ] as const)(
+    'routes "%s" to %s without an external provider',
+    async (message, route) => {
+      const service = new AiEngineService({
+        name: 'disabled',
+        analyze: jest.fn(),
+        generate: jest.fn(),
+      } as unknown as AiProvider);
+
+      await expect(
+        service.routeResolveRequest({
+          conversationType: 'inquiry',
+          message,
+          history: [],
+        }),
+      ).resolves.toMatchObject({ route, provider: 'fallback' });
+    },
+  );
+
   it('generates a structured proposal draft with scheduled deliverables', async () => {
     const provider = {
       name: 'nvidia' as const,

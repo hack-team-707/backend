@@ -27,6 +27,21 @@ export interface MessageAnalysisMetadata {
     strategy: 'internal_first' | 'external_fallback';
     sourcesConsulted: Array<'resolve' | 'himalayas' | 'freelancer'>;
   };
+  resolveRoute?: {
+    route: 'problem' | 'capability' | 'opportunity' | 'project' | 'general';
+    confidence: number;
+    reason: string;
+  };
+  projects?: Array<{
+    id: string;
+    title: string;
+    status: string;
+    updatedAt: string;
+    role: 'requester' | 'solver';
+    totalPrice?: number | null;
+    currency?: string | null;
+    participantCount: number;
+  }>;
   noMatchResolution?: NoMatchResolutionView;
   externalTalent?: ExternalTalentSearchResponse;
   teamSuggestion?: TeamSuggestionView;

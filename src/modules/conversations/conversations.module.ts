@@ -7,6 +7,7 @@ import { CapabilityPortfoliosModule } from '../capability-portfolios/capability-
 import { ExternalTalentModule } from '../external-talent/external-talent.module';
 import { MatchingModule } from '../matching/matching.module';
 import { ProblemsModule } from '../problems/problems.module';
+import { ProjectsModule } from '../projects/projects.module';
 import { SkillCardsModule } from '../skill-cards/skill-cards.module';
 import { TeamFormationModule } from '../team-formation/team-formation.module';
 import { ConversationsController } from './conversations.controller';
@@ -23,6 +24,7 @@ import { ConversationsService } from './conversations.service';
     ExternalTalentModule,
     MatchingModule,
     ProblemsModule,
+    ProjectsModule,
     SkillCardsModule,
     TeamFormationModule,
   ],

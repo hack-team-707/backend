@@ -41,6 +41,17 @@ export interface ConversationAnalysisInput {
   history: ConversationHistoryItem[];
 }
 
+export type ResolveAssistantRoute =
+  'problem' | 'capability' | 'opportunity' | 'project' | 'general';
+
+export interface ResolveAssistantRouting {
+  route: ResolveAssistantRoute;
+  confidence: number;
+  query: string;
+  reason: string;
+  provider: AiProviderName | 'fallback';
+}
+
 export interface ProposalDraftInput {
   problem: string;
   requiredSkills: string[];
@@ -448,6 +459,64 @@ export class AiEngineService {
     return this.answerInquiry(input);
   }
 
+  async routeResolveRequest(
+    input: ConversationAnalysisInput,
+  ): Promise<ResolveAssistantRouting> {
+    const fallback = this.fallbackResolveRoute(input.message);
+    if (this.provider.name === 'disabled') return fallback;
+
+    try {
+      const raw = await this.provider.generate(
+        [
+          'Clasifica la solicitud para el asistente de Resolve.',
+          'Resolve permite: publicar un problema para encontrar solucionadores; ofrecer y validar una capacidad; explorar oportunidades laborales; consultar proyectos propios activos; o responder preguntas generales.',
+          'Rutas válidas: problem, capability, opportunity, project, general.',
+          'Usa project sólo para consultar estado, tareas, entregables, pagos, participantes o avance de proyectos propios.',
+          'Usa opportunity para buscar empleos, trabajos, vacantes o proyectos a los que el usuario desea postular.',
+          'Usa problem cuando el usuario necesita resolver una necesidad o encontrar personas que la solucionen.',
+          'Usa capability cuando el usuario desea ofrecer, registrar o validar sus habilidades.',
+          'Devuelve sólo JSON con route, confidence (0 a 1), query y reason.',
+          `Historial: ${JSON.stringify(input.history)}`,
+          `Mensaje actual: ${input.message}`,
+        ].join('\n'),
+      );
+      const value = parseJsonObject(raw);
+      const validRoutes: ResolveAssistantRoute[] = [
+        'problem',
+        'capability',
+        'opportunity',
+        'project',
+        'general',
+      ];
+      if (
+        typeof value.route !== 'string' ||
+        !validRoutes.includes(value.route as ResolveAssistantRoute)
+      ) {
+        throw new Error('Invalid Resolve assistant route');
+      }
+      const confidence =
+        typeof value.confidence === 'number'
+          ? Math.max(0, Math.min(1, value.confidence))
+          : 0.8;
+      return {
+        route: value.route as ResolveAssistantRoute,
+        confidence,
+        query:
+          typeof value.query === 'string' && value.query.trim()
+            ? value.query.trim()
+            : input.message.trim(),
+        reason:
+          typeof value.reason === 'string'
+            ? value.reason.trim()
+            : 'Solicitud clasificada por el asistente de Resolve.',
+        provider: this.provider.name,
+      };
+    } catch (error) {
+      this.logProviderFallback('Resolve assistant routing', error);
+      return fallback;
+    }
+  }
+
   private async analyzeProblemConversation(
     description: string,
   ): Promise<IntentAnalysisResult> {
@@ -760,13 +829,15 @@ export class AiEngineService {
     input: ConversationAnalysisInput,
   ): Promise<IntentAnalysisResult> {
     let answer =
-      'Puedo ayudarte a publicar un problema, registrar una capacidad o consultar cómo funciona Resolve. Indícame qué necesitas.';
+      'Puedo ayudarte a resolver un problema, ofrecer y validar una capacidad, explorar oportunidades o consultar tus proyectos activos. Cuéntame qué necesitas y elegiré el flujo adecuado.';
     let provider: IntentAnalysisResult['provider'] = 'fallback';
     if (this.provider.name !== 'disabled') {
       try {
         const raw = await this.provider.generate(
           [
             'Responde como asistente de Resolve, un marketplace que conecta problemas con solucionadores.',
+            'Tus funciones son: resolver problemas, ofrecer capacidades, explorar oportunidades y consultar proyectos propios.',
+            'Si la solicitud requiere ejecutar una de esas funciones, explica brevemente qué información necesitas para continuar.',
             'Sé breve, útil y responde en español. No afirmes haber ejecutado acciones.',
             'Devuelve sólo JSON con la propiedad answer (string).',
             `Historial: ${JSON.stringify(input.history)}`,
@@ -791,6 +862,50 @@ export class AiEngineService {
       missingFields: [],
       assistantReply: answer,
       provider,
+    };
+  }
+
+  private fallbackResolveRoute(message: string): ResolveAssistantRouting {
+    const normalized = message.trim().toLocaleLowerCase();
+    let route: ResolveAssistantRoute = 'general';
+    let reason = 'Consulta general sobre Resolve.';
+
+    if (
+      /\b(mi|mis|nuestro|nuestros)\s+proyecto(?:s)?\b|\b(estado|avance|progreso|tarea(?:s)?|entregable(?:s)?|pago(?:s)?|participante(?:s)?)\b.*\bproyecto(?:s)?\b|\bconsult(?:ar|a|o)\b.*\bproyecto(?:s)?\b/i.test(
+        normalized,
+      )
+    ) {
+      route = 'project';
+      reason = 'El usuario quiere consultar la ejecución de sus proyectos.';
+    } else if (
+      /\b(oportunidad(?:es)?|empleo(?:s)?|vacante(?:s)?|trabajo(?:s)?\s+(?:remoto|freelance)|postular|buscar\s+trabajo)\b/i.test(
+        normalized,
+      )
+    ) {
+      route = 'opportunity';
+      reason = 'El usuario quiere explorar oportunidades disponibles.';
+    } else if (
+      /\b(ofrecer|registrar|validar|certificar|demostrar)\b.*\b(capacidad(?:es)?|habilidad(?:es)?|experiencia)\b|\bquiero ofrecer\b/i.test(
+        normalized,
+      )
+    ) {
+      route = 'capability';
+      reason = 'El usuario quiere ofrecer o validar una capacidad.';
+    } else if (
+      /\b(necesito|quiero|busco|ayuda|resolver|solucionar|error|problema|falla)\b/i.test(
+        normalized,
+      )
+    ) {
+      route = 'problem';
+      reason = 'El usuario describe una necesidad que debe resolverse.';
+    }
+
+    return {
+      route,
+      confidence: route === 'general' ? 0.6 : 0.78,
+      query: message.trim(),
+      reason,
+      provider: 'fallback',
     };
   }
 

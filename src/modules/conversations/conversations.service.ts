@@ -17,6 +17,7 @@ import { LocationEncryptionService } from '../../common/location-encryption.serv
 import {
   AiEngineService,
   IntentAnalysisResult,
+  ResolveAssistantRouting,
 } from '../ai-engine/ai-engine.service';
 import { CreateProblemDto } from '../problems/dto/problem.dto';
 import { ProblemsService } from '../problems/problems.service';
@@ -31,6 +32,8 @@ import { ExternalTalentService } from '../external-talent/services/external-tale
 import { ExternalTalentSearchResponse } from '../external-talent/interfaces/talent-provider.interface';
 import { TeamFormationService } from '../team-formation/team-formation.service';
 import { TeamSuggestionView } from '../team-formation/team-formation.types';
+import { ProjectsService } from '../projects/projects.service';
+import { JobStatus } from '../../shared';
 import {
   CreateConversationDto,
   CreateMessageDto,
@@ -87,6 +90,8 @@ export class ConversationsService {
     private readonly locationEncryption?: LocationEncryptionService,
     @Optional()
     private readonly externalTalent?: ExternalTalentService,
+    @Optional()
+    private readonly projects?: ProjectsService,
   ) {}
 
   async createGuest(message: string): Promise<GuestConversationResult> {
@@ -334,26 +339,60 @@ export class ConversationsService {
         }),
       ));
 
-    const analysis = dto.structuredCard
-      ? this.manualCardAnalysis(conversation.type)
-      : conversation.type === ConversationType.INQUIRY &&
-          dto.text &&
-          this.isOpportunitySearch(dto.text)
-        ? await this.searchOpportunityAnalysis(ownerId, dto.text)
-        : await this.aiEngine.analyzeConversation({
-            conversationType: conversation.type,
-            message: dto.text?.trim() ?? '',
-            history: history.map((message) => ({
-              role: message.role ?? MessageRole.USER,
-              ...(message.text ? { text: message.text } : {}),
-              ...(message.analysisMetadata?.capabilityAssessment
-                ? {
-                    capabilityAssessment:
-                      message.analysisMetadata.capabilityAssessment,
-                  }
-                : {}),
-            })),
-          });
+    const analysisHistory = history.map((message) => ({
+      role: message.role ?? MessageRole.USER,
+      ...(message.text ? { text: message.text } : {}),
+      ...(message.analysisMetadata?.capabilityAssessment
+        ? {
+            capabilityAssessment: message.analysisMetadata.capabilityAssessment,
+          }
+        : {}),
+    }));
+    const continuationType = this.continuationType(conversation, history);
+    let effectiveType = continuationType ?? conversation.type;
+    let resolveRouting: ResolveAssistantRouting | undefined;
+    let analysis: IntentAnalysisResult;
+    if (dto.structuredCard) {
+      analysis = this.manualCardAnalysis(effectiveType);
+    } else if (
+      conversation.type === ConversationType.INQUIRY &&
+      !continuationType
+    ) {
+      resolveRouting = await this.aiEngine.routeResolveRequest({
+        conversationType: ConversationType.INQUIRY,
+        message: dto.text?.trim() ?? '',
+        history: analysisHistory,
+      });
+      if (resolveRouting.route === 'opportunity') {
+        analysis = await this.searchOpportunityAnalysis(
+          ownerId,
+          resolveRouting.query,
+        );
+      } else if (resolveRouting.route === 'project') {
+        analysis = await this.searchProjectAnalysis(
+          ownerId,
+          resolveRouting.query,
+        );
+      } else {
+        effectiveType =
+          resolveRouting.route === 'problem'
+            ? ConversationType.PROBLEM
+            : resolveRouting.route === 'capability'
+              ? ConversationType.CAPABILITY
+              : ConversationType.INQUIRY;
+        analysis = await this.aiEngine.analyzeConversation({
+          conversationType: effectiveType,
+          message: dto.text?.trim() ?? '',
+          history: analysisHistory,
+        });
+      }
+    } else {
+      analysis = await this.aiEngine.analyzeConversation({
+        conversationType: effectiveType,
+        message: dto.text?.trim() ?? '',
+        history: analysisHistory,
+      });
+    }
     if (
       analysis.extractedEntities.portfolioRequested === true &&
       analysis.capabilityAssessment
@@ -377,7 +416,7 @@ export class ConversationsService {
     }
     const structuredCard = dto.structuredCard
       ? (dto.structuredCard as StructuredCard)
-      : this.buildStructuredCard(conversation.type, analysis, dto, history);
+      : this.buildStructuredCard(effectiveType, analysis, dto, history);
     const assistantMessage = await this.messages.save(
       this.messages.create({
         id: randomUUID(),
@@ -393,6 +432,15 @@ export class ConversationsService {
           confidence: analysis.confidence,
           missingFields: analysis.missingFields,
           provider: analysis.provider,
+          ...(resolveRouting
+            ? {
+                resolveRoute: {
+                  route: resolveRouting.route,
+                  confidence: resolveRouting.confidence,
+                  reason: resolveRouting.reason,
+                },
+              }
+            : {}),
           ...(analysis.capabilityAssessment
             ? { capabilityAssessment: analysis.capabilityAssessment }
             : {}),
@@ -421,6 +469,9 @@ export class ConversationsService {
                     : [],
                 },
               }
+            : {}),
+          ...(Array.isArray(analysis.extractedEntities.projects)
+            ? { projects: analysis.extractedEntities.projects }
             : {}),
         },
         locationShared: false,
@@ -883,10 +934,76 @@ export class ConversationsService {
     };
   }
 
-  private isOpportunitySearch(message: string): boolean {
-    return /\b(oportunidad(?:es)?|empleo(?:s)?|trabajo(?:s)?|vacante(?:s)?|proyecto(?:s)?\s+(?:freelance|remoto)|colaborador(?:es)?)\b/i.test(
-      message,
+  private async searchProjectAnalysis(
+    ownerId: string,
+    query: string,
+  ): Promise<IntentAnalysisResult> {
+    if (!this.projects) {
+      return {
+        intent: 'general_question',
+        confidence: 0.5,
+        extractedEntities: { projects: [] },
+        missingFields: [],
+        assistantReply:
+          'No pude consultar tus proyectos en este momento. Inténtalo nuevamente o abre “Mis proyectos”.',
+        provider: 'fallback',
+      };
+    }
+    const mine = await this.projects.findMine(ownerId);
+    const active = mine.filter(
+      (project) =>
+        project.status !== JobStatus.CLOSED &&
+        project.status !== JobStatus.CANCELLED,
     );
+    const summaries = active.slice(0, 8).map((project) => ({
+      id: project.id,
+      title: project.title,
+      status: project.status,
+      updatedAt: project.updatedAt,
+      role:
+        project.requesterId === ownerId
+          ? ('requester' as const)
+          : ('solver' as const),
+      totalPrice: project.totalPrice,
+      currency: project.currency,
+      participantCount: project.participantIds.length,
+    }));
+    const assistantReply = summaries.length
+      ? `Encontré ${summaries.length} proyecto${summaries.length === 1 ? '' : 's'} activo${summaries.length === 1 ? '' : 's'} relacionado${summaries.length === 1 ? '' : 's'} con tu cuenta. Puedes abrir cualquiera para revisar tareas, entregables, participantes y pagos.`
+      : 'No tienes proyectos activos en este momento. Cuando una propuesta sea aceptada, aparecerá aquí para que puedas consultar su avance.';
+    return {
+      intent: 'general_question',
+      confidence: 0.98,
+      extractedEntities: {
+        projects: summaries,
+        projectQuery: query,
+      },
+      missingFields: [],
+      assistantReply,
+      provider:
+        this.aiEngine.providerName === 'disabled'
+          ? 'fallback'
+          : this.aiEngine.providerName,
+    };
+  }
+
+  private continuationType(
+    conversation: Conversation,
+    history: Message[],
+  ): ConversationType | undefined {
+    if (conversation.type !== ConversationType.INQUIRY) {
+      return conversation.type;
+    }
+    const previousAssistant = [...history]
+      .reverse()
+      .find((message) => message.role === MessageRole.ASSISTANT);
+    if (previousAssistant?.analysisMetadata?.intent === 'submit_problem') {
+      return ConversationType.PROBLEM;
+    }
+    if (previousAssistant?.analysisMetadata?.intent === 'register_skill') {
+      return ConversationType.CAPABILITY;
+    }
+    return undefined;
   }
 
   private async assertValid(value: object): Promise<void> {
