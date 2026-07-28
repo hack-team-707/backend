@@ -150,16 +150,30 @@ jobs:
               set -u
             fi
             require_command node
-            require_command pnpm
+            require_command corepack
             require_command pm2
             require_command curl
 
             cd "$RELEASE_DIR"
 
             ln -sfn "$APP_ROOT/.env" .env
+            export COREPACK_HOME="$APP_ROOT/.corepack"
+            mkdir -p "$COREPACK_HOME"
 
+            EXPECTED_PNPM_VERSION="$(
+              node -p "require('./package.json').packageManager.split('@').pop()"
+            )"
+            ACTUAL_PNPM_VERSION="$(corepack pnpm --version)"
+            if [ "$ACTUAL_PNPM_VERSION" != "$EXPECTED_PNPM_VERSION" ]; then
+              echo "ERROR: pnpm version mismatch."
+              echo "Expected: $EXPECTED_PNPM_VERSION"
+              echo "Actual:   $ACTUAL_PNPM_VERSION"
+              exit 1
+            fi
+
+            echo "Using project package manager: pnpm $ACTUAL_PNPM_VERSION"
             echo "Installing production dependencies for $RELEASE_SHA..."
-            pnpm install --prod --frozen-lockfile
+            corepack pnpm install --prod --frozen-lockfile
 
             PREVIOUS_RELEASE=""
             if [ -L "$CURRENT_LINK" ]; then
