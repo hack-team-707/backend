@@ -20,6 +20,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          cache: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm run build
+
       - name: Upload deployment artifact
         uses: actions/upload-artifact@v6
         with:
@@ -42,6 +69,28 @@ jobs:
         with:
           name: backend-${{ github.sha }}
           path: release
+
+      - name: Validate deployment artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            release/package.json
+            release/pnpm-lock.yaml
+            release/ecosystem.config.cjs
+            release/dist/main.js
+          )
+
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "::error file=$file::Deployment artifact is incomplete: $file is missing"
+              find release -maxdepth 3 -type f -print | sort
+              exit 1
+            fi
+          done
+
+          echo "Deployment artifact validated successfully."
 
       - name: Copy release to EC2
         uses: appleboy/scp-action@v1
@@ -69,17 +118,47 @@ jobs:
             RELEASE_DIR="$APP_ROOT/releases/$RELEASE_SHA"
             CURRENT_LINK="$APP_ROOT/current"
 
-            test -f "$RELEASE_DIR/package.json"
-            test -f "$RELEASE_DIR/pnpm-lock.yaml"
-            test -f "$RELEASE_DIR/dist/main.js"
-            test -f "$RELEASE_DIR/ecosystem.config.cjs"
+            require_file() {
+              if [ ! -f "$1" ]; then
+                echo "ERROR: required deployment file is missing: $1"
+                echo "Release contents:"
+                find "$RELEASE_DIR" -maxdepth 3 -type f -print 2>/dev/null \
+                  | sort || true
+                exit 1
+              fi
+            }
+
+            require_command() {
+              if ! command -v "$1" >/dev/null 2>&1; then
+                echo "ERROR: required command is unavailable for ec2-user: $1"
+                echo "PATH=$PATH"
+                exit 1
+              fi
+            }
+
+            require_file "$RELEASE_DIR/package.json"
+            require_file "$RELEASE_DIR/pnpm-lock.yaml"
+            require_file "$RELEASE_DIR/dist/main.js"
+            require_file "$RELEASE_DIR/ecosystem.config.cjs"
+            require_file "$APP_ROOT/.env"
+
+            export PATH="$HOME/.local/share/pnpm:$HOME/.local/bin:/usr/local/bin:/usr/bin:$PATH"
+            export NVM_DIR="$HOME/.nvm"
+            if [ -s "$NVM_DIR/nvm.sh" ]; then
+              set +u
+              . "$NVM_DIR/nvm.sh"
+              set -u
+            fi
+            require_command node
+            require_command pnpm
+            require_command pm2
+            require_command curl
 
             cd "$RELEASE_DIR"
 
-            if [ -f "$APP_ROOT/.env" ]; then
-              ln -sfn "$APP_ROOT/.env" .env
-            fi
+            ln -sfn "$APP_ROOT/.env" .env
 
+            echo "Installing production dependencies for $RELEASE_SHA..."
             pnpm install --prod --frozen-lockfile
 
             PREVIOUS_RELEASE=""
@@ -89,11 +168,19 @@ jobs:
 
             ln -sfnT "$RELEASE_DIR" "$CURRENT_LINK"
 
-            pm2 startOrReload "$CURRENT_LINK/ecosystem.config.cjs" --update-env
+            echo "Activating release $RELEASE_SHA..."
+            if ! pm2 startOrReload \
+              "$CURRENT_LINK/ecosystem.config.cjs" \
+              --update-env; then
+              echo "ERROR: PM2 could not activate the release."
+              pm2 logs resolve-api --lines 100 --nostream || true
+              exit 1
+            fi
 
             HEALTHY=0
             ATTEMPT=1
             while [ "$ATTEMPT" -le 10 ]; do
+              echo "Health check attempt $ATTEMPT/10..."
               if curl --fail --silent --show-error \
                 http://localhost:3000/api/health >/dev/null; then
                 HEALTHY=1
@@ -105,6 +192,7 @@ jobs:
 
             if [ "$HEALTHY" -ne 1 ]; then
               echo "Health check failed; restoring previous release."
+              pm2 logs resolve-api --lines 100 --nostream || true
               if [ -n "$PREVIOUS_RELEASE" ] && [ -d "$PREVIOUS_RELEASE" ]; then
                 ln -sfnT "$PREVIOUS_RELEASE" "$CURRENT_LINK"
                 pm2 startOrReload \
