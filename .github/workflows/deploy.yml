@@ -17,9 +17,11 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
+        working-directory: backend
         run: pnpm install --no-frozen-lockfile
 
       - name: Run tests
+        working-directory: backend
         run: pnpm test
 
   deploy:
@@ -34,6 +36,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies and build
+        working-directory: backend
         run: pnpm install --no-frozen-lockfile && pnpm run build
 
       - name: Copy artifacts to EC2 via SCP
@@ -42,8 +45,9 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: 'dist/,package.json,pnpm-lock.yaml'
+          source: 'backend/dist/,backend/package.json,backend/pnpm-lock.yaml'
           target: /home/ec2-user/resolve-backend
+          strip_components: 1
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
