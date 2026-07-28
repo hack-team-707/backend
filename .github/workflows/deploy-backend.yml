@@ -19,19 +19,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
-          version: 9.15.9
+          cache: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          package-manager-cache: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -49,7 +48,7 @@ jobs:
         run: pnpm run build
 
       - name: Upload deployment artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: backend-${{ github.sha }}
           path: |
@@ -66,13 +65,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download deployment artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: backend-${{ github.sha }}
           path: release
 
       - name: Copy release to EC2
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
@@ -82,7 +81,7 @@ jobs:
           strip_components: 1
 
       - name: Activate release
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@v1.2.5
         env:
           RELEASE_SHA: ${{ github.sha }}
         with:
@@ -90,7 +89,6 @@ jobs:
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: RELEASE_SHA
-          script_stop: true
           script: |
             set -eu
 
